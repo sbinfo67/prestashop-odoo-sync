@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<module>
+    <name>odoosalesync</name>
+    <displayName><![CDATA[Synchronisation Odoo]]></displayName>
+    <version><![CDATA[1.0.0]]></version>
+    <description><![CDATA[Crée automatiquement la commande et le client dans Odoo lorsqu'un paiement PrestaShop est validé.]]></description>
+    <author><![CDATA[Custom]]></author>
+    <tab><![CDATA[administration]]></tab>
+    <is_configurable>1</is_configurable>
+    <need_instance>0</need_instance>
+    <confirmUninstall><![CDATA[Êtes-vous sûr de vouloir désinstaller ce module ? Le journal de synchronisation sera supprimé.]]></confirmUninstall>
+    <limited_countries></limited_countries>
+</module>
