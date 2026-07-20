@@ -32,19 +32,25 @@ Module PrestaShop 8/9 qui crée automatiquement une commande de vente (`sale.ord
 
 ## Cron de rattrapage
 
-Un token est généré automatiquement à l'installation et affiché sur l'écran de configuration, sous la forme :
+Ce cron rejoue la synchro pour les commandes payées des dernières 48h qui n'ont pas encore de synchro réussie (utile si Odoo était temporairement indisponible au moment du paiement).
+
+### Mode recommandé : ligne de commande (CLI)
+
+PrestaShop 9 bloque par défaut l'accès HTTP direct aux fichiers `.php` des modules (`modules/.htaccess` → 403). Le cron doit donc être appelé en **CLI** depuis le crontab système, ce qui contourne le serveur web et ne nécessite aucun token :
+
+```
+*/10 * * * * www-data php /var/www/html/modules/odoosalesync/cron.php >/dev/null 2>&1
+```
+
+(adapter le chemin et l'utilisateur système à votre installation).
+
+### Mode URL (optionnel)
+
+Un token est généré à l'installation et affiché sur l'écran de configuration. Si vous devez impérativement déclencher le cron par une URL (ordonnanceur externe), il faut **autoriser explicitement ce fichier** dans la configuration de votre serveur web (lever le blocage de `modules/.htaccess` pour `cron.php`), puis appeler :
 
 ```
 https://votre-boutique.example/modules/odoosalesync/cron.php?token=XXXXXXXX
 ```
-
-Ajouter un appel à cette URL toutes les 5 à 10 minutes dans le crontab système (ou tout ordonnanceur externe) :
-
-```
-*/10 * * * * curl -s "https://votre-boutique.example/modules/odoosalesync/cron.php?token=XXXXXXXX" >/dev/null
-```
-
-Ce cron rejoue la synchro pour les commandes payées des dernières 48h qui n'ont pas encore de synchro réussie (utile si Odoo était temporairement indisponible au moment du paiement).
 
 ## Journal / réessai manuel
 
@@ -55,7 +61,7 @@ Modules > Synchronisation Odoo > **Journal** liste toutes les tentatives de sync
 - **Taxes** : le module envoie le prix unitaire HT de PrestaShop, mais ne mappe pas finement les taux de TVA PrestaShop vers Odoo — c'est la configuration fiscale du produit/du partenaire dans Odoo qui détermine la taxe appliquée à la ligne. À vérifier/adapter selon votre configuration comptable.
 - **Pas de création de produit à la volée** : si une référence produit PrestaShop n'existe pas dans Odoo (`default_code`), la synchro de la commande échoue proprement (visible dans le Journal) plutôt que de créer une commande partielle.
 - **Pas de synchronisation retour** : les annulations/remboursements faits dans PrestaShop ne sont pas répercutés automatiquement dans Odoo.
-- **Multi-boutique** : `cron.php` s'exécute dans le contexte de boutique par défaut ; en environnement multi-shop, une adaptation peut être nécessaire.
+- **Multi-boutique** : le hook s'exécute dans le contexte de la boutique de la commande, et le cron réinitialise le contexte (boutique/langue/devise) à partir de chaque commande traitée. Le mapping produit se fait par référence globale ; si vous gérez des références différentes par boutique, une adaptation peut être nécessaire.
 
 ## Guide de test manuel (à faire sur un environnement de STAGING, pas en production)
 

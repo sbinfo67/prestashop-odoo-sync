@@ -95,14 +95,12 @@ class OdooOrderSync
         $idOdooPartner = $this->findOrCreatePartner($customer, $address);
         $orderLines = $this->buildOrderLines($products);
 
-        $idOdooOrder = (int) $this->client->executeKw('sale.order', 'create', [[
-            [
-                'partner_id' => $idOdooPartner,
-                'client_order_ref' => $order->reference,
-                'date_order' => $order->date_add,
-                'order_line' => $orderLines,
-            ],
-        ]]);
+        $idOdooOrder = $this->client->create('sale.order', [
+            'partner_id' => $idOdooPartner,
+            'client_order_ref' => $order->reference,
+            'date_order' => $order->date_add,
+            'order_line' => $orderLines,
+        ]);
 
         if (!$idOdooOrder) {
             throw new OdooOrderSyncException('Odoo n\'a pas renvoyé d\'identifiant pour la commande créée.');
@@ -196,7 +194,7 @@ class OdooOrderSync
             }
         }
 
-        return (int) $this->client->executeKw('res.partner', 'create', [[$partnerData]]);
+        return $this->client->create('res.partner', $partnerData);
     }
 
     private function findCountryId($idCountryPs)

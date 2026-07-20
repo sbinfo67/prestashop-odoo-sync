@@ -73,6 +73,23 @@ class OdooClient
         ]);
     }
 
+    /**
+     * Crée un enregistrement et renvoie son id (entier).
+     *
+     * Odoo, appelé avec une liste de valeurs, renvoie une liste d'ids : on prend le premier.
+     * Passer par cette méthode évite le piège du transtypage (int) d'un tableau.
+     */
+    public function create($model, array $values)
+    {
+        $result = $this->executeKw($model, 'create', [[$values]]);
+
+        if (is_array($result)) {
+            $result = reset($result);
+        }
+
+        return (int) $result;
+    }
+
     public function searchRead($model, array $domain, array $fields = [], $limit = 0)
     {
         $kwargs = ['fields' => $fields];

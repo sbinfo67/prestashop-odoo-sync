@@ -69,6 +69,7 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
 
     protected function renderForm()
     {
+        $cronCli = '*/10 * * * * php ' . _PS_MODULE_DIR_ . 'odoosalesync/cron.php';
         $cronUrl = $this->context->link->getBaseLink() . 'modules/odoosalesync/cron.php?token=' . Configuration::get('ODOOSALESYNC_CRON_TOKEN');
 
         $fieldsForm = [
@@ -115,10 +116,13 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
                     [
                         'type' => 'html',
                         'name' => 'cron_info',
-                        'label' => $this->l('URL du cron de rattrapage'),
-                        'html_content' => '<code>' . htmlspecialchars($cronUrl) . '</code><p class="help-block">'
-                            . $this->l('À appeler toutes les 5 à 10 minutes (crontab système) pour rattraper les synchronisations en échec.')
-                            . '</p>',
+                        'label' => $this->l('Cron de rattrapage'),
+                        'html_content' => '<p class="help-block">'
+                            . $this->l('Recommandé (CLI, contourne le blocage .htaccess de PrestaShop 9) — à ajouter au crontab système :')
+                            . '</p><code>' . htmlspecialchars($cronCli) . '</code>'
+                            . '<p class="help-block" style="margin-top:10px">'
+                            . $this->l('Mode URL optionnel (nécessite d\'autoriser le fichier dans la config du serveur web) :')
+                            . '</p><code>' . htmlspecialchars($cronUrl) . '</code>',
                     ],
                 ],
                 'submit' => [
