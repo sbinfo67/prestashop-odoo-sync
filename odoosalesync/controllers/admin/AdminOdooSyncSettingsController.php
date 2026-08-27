@@ -41,6 +41,13 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
         Configuration::updateValue('ODOOSALESYNC_LOGIN', trim((string) Tools::getValue('ODOOSALESYNC_LOGIN')));
         Configuration::updateValue('ODOOSALESYNC_AUTOCONFIRM', (int) Tools::getValue('ODOOSALESYNC_AUTOCONFIRM'));
 
+        $startDate = trim((string) Tools::getValue('ODOOSALESYNC_START_DATE'));
+        if ($startDate === '' || preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDate)) {
+            Configuration::updateValue('ODOOSALESYNC_START_DATE', $startDate);
+        } else {
+            $this->errors[] = $this->l('Date de début de synchro invalide (format attendu : AAAA-MM-JJ). Valeur non modifiée.');
+        }
+
         $apiKey = trim((string) Tools::getValue('ODOOSALESYNC_API_KEY'));
         if ($apiKey !== '') {
             Configuration::updateValue('ODOOSALESYNC_API_KEY', $apiKey);
@@ -105,6 +112,13 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
                         'desc' => $this->l('Laisser vide pour conserver la clé actuellement enregistrée.'),
                     ],
                     [
+                        'type' => 'text',
+                        'label' => $this->l('Date de début de synchro'),
+                        'name' => 'ODOOSALESYNC_START_DATE',
+                        'desc' => $this->l('Format AAAA-MM-JJ. Les commandes créées avant cette date ne sont jamais envoyées à Odoo (utile en première installation sur un site déjà en production). Laisser vide pour tout synchroniser.'),
+                        'class' => 'fixed-width-lg',
+                    ],
+                    [
                         'type' => 'switch',
                         'label' => $this->l('Confirmer automatiquement la commande dans Odoo'),
                         'name' => 'ODOOSALESYNC_AUTOCONFIRM',
@@ -164,6 +178,7 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
             'ODOOSALESYNC_DB' => Tools::getValue('ODOOSALESYNC_DB', Configuration::get('ODOOSALESYNC_DB')),
             'ODOOSALESYNC_LOGIN' => Tools::getValue('ODOOSALESYNC_LOGIN', Configuration::get('ODOOSALESYNC_LOGIN')),
             'ODOOSALESYNC_API_KEY' => '',
+            'ODOOSALESYNC_START_DATE' => Tools::getValue('ODOOSALESYNC_START_DATE', Configuration::get('ODOOSALESYNC_START_DATE')),
             'ODOOSALESYNC_AUTOCONFIRM' => (int) Configuration::get('ODOOSALESYNC_AUTOCONFIRM'),
         ];
     }

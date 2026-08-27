@@ -52,6 +52,12 @@ class OdooOrderSync
 
         try {
             $result = $this->doSync($idOrder);
+
+            // Commande antérieure à la date de début de synchro : on l'ignore sans rien enregistrer.
+            if (!empty($result['skipped'])) {
+                return $result;
+            }
+
             $this->saveSyncRow($idOrder, 'success', $result['id_odoo_order'], $result['id_odoo_partner'], null);
 
             return $result;
@@ -77,6 +83,10 @@ class OdooOrderSync
 
         if (!Validate::isLoadedObject($order)) {
             throw new OdooOrderSyncException('Commande PrestaShop #' . $idOrder . ' introuvable.');
+        }
+
+        if (self::isBeforeStartDate($order->date_add)) {
+            return ['skipped' => true];
         }
 
         $customer = new Customer((int) $order->id_customer);
@@ -261,16 +271,60 @@ class OdooOrderSync
      */
     public static function getOrdersToRetry($hours = 48, $limit = 50)
     {
+        $startDateCondition = '';
+        $startDate = self::getStartDate();
+        if ($startDate !== null) {
+            $startDateCondition = ' AND o.date_add >= "' . pSQL($startDate) . '"';
+        }
+
         $sql = 'SELECT o.id_order
                 FROM `' . _DB_PREFIX_ . 'orders` o
                 INNER JOIN `' . _DB_PREFIX_ . 'order_state` os ON os.id_order_state = o.current_state
                 LEFT JOIN `' . _DB_PREFIX_ . 'odoosync_order` s ON s.id_order = o.id_order
                 WHERE os.paid = 1
-                  AND o.date_add >= DATE_SUB(NOW(), INTERVAL ' . (int) $hours . ' HOUR)
+                  AND o.date_add >= DATE_SUB(NOW(), INTERVAL ' . (int) $hours . ' HOUR)' . $startDateCondition . '
                   AND (s.id_odoosync_order IS NULL OR s.status = "error")
                 ORDER BY o.id_order ASC
                 LIMIT ' . (int) $limit;
 
         return Db::getInstance()->executeS($sql) ?: [];
+    }
+
+    /**
+     * Date de début de synchro (format "Y-m-d H:i:s"), ou null si non configurée (= tout synchroniser).
+     * Les commandes créées avant cette date ne sont jamais envoyées vers Odoo : utile lors d'une
+     * première installation sur un PrestaShop déjà en production, pour ne pas importer l'historique.
+     */
+    public static function getStartDate()
+    {
+        $raw = trim((string) Configuration::get('ODOOSALESYNC_START_DATE'));
+
+        if ($raw === '') {
+            return null;
+        }
+
+        $timestamp = strtotime($raw);
+        if ($timestamp === false) {
+            return null;
+        }
+
+        // On borne au début de la journée pour inclure toute commande passée le jour choisi.
+        return date('Y-m-d', $timestamp) . ' 00:00:00';
+    }
+
+    public static function isBeforeStartDate($orderDate)
+    {
+        $startDate = self::getStartDate();
+
+        if ($startDate === null) {
+            return false;
+        }
+
+        $orderTimestamp = strtotime((string) $orderDate);
+        if ($orderTimestamp === false) {
+            return false;
+        }
+
+        return $orderTimestamp < strtotime($startDate);
     }
 }

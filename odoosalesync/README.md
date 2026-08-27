@@ -27,8 +27,19 @@ Module PrestaShop 8/9 qui crée automatiquement une commande de vente (`sale.ord
 2. Dans le back-office : Modules > Gestionnaire de modules > rechercher "Synchronisation Odoo" > Installer.
 3. Aller dans Modules > **Synchronisation Odoo** (ou via le menu Administration créé par le module) et renseigner :
    - URL Odoo, base de données, login API, clé API ;
+   - la **date de début de synchro** (voir ci-dessous) ;
    - activer/désactiver la confirmation automatique de la commande dans Odoo.
 4. Cliquer sur **Tester la connexion** pour valider les identifiants avant d'enregistrer.
+
+## Date de début de synchro
+
+Champ **Date de début de synchro** (format `AAAA-MM-JJ`) : les commandes PrestaShop **créées avant cette date ne sont jamais envoyées à Odoo**, que ce soit par le hook de paiement ou par le cron de rattrapage.
+
+Objectif : lors d'une première installation sur un PrestaShop **déjà en production**, éviter d'importer tout l'historique des commandes dans Odoo. Seules les commandes à partir de la date choisie sont synchronisées.
+
+- À l'installation (ou à la montée de version 1.1.0), le champ est initialisé automatiquement à la **date du jour**.
+- Laisser le champ **vide** pour synchroniser toutes les commandes, sans filtre de date.
+- La comparaison se fait sur la date de **création** de la commande (`date_add`), à partir de 00:00:00 le jour indiqué.
 
 ## Cron de rattrapage
 
