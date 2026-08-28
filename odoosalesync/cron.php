@@ -34,29 +34,11 @@ if (!$isCli) {
     }
 }
 
-$orders = OdooOrderSync::getOrdersToRetry();
-$sync = new OdooOrderSync();
+$result = OdooOrderSync::runCatchUp();
 
-$success = 0;
-$failed = 0;
-
-foreach ($orders as $row) {
-    try {
-        // En CLI, le contexte (boutique/langue/devise) n'est pas initialisé par PrestaShop :
-        // on le renseigne depuis la commande, sinon la lecture des produits/prix échoue.
-        $order = new Order((int) $row['id_order']);
-        if (Validate::isLoadedObject($order)) {
-            $context = Context::getContext();
-            $context->shop = new Shop((int) $order->id_shop);
-            $context->language = new Language((int) $order->id_lang);
-            $context->currency = new Currency((int) $order->id_currency);
-        }
-
-        $sync->syncOrder((int) $row['id_order']);
-        $success++;
-    } catch (Throwable $e) {
-        $failed++;
-    }
-}
-
-echo sprintf("Terminé : %d commande(s) synchronisée(s), %d échec(s), %d commande(s) traitée(s) au total.\n", $success, $failed, count($orders));
+echo sprintf(
+    "Terminé : %d commande(s) synchronisée(s), %d échec(s), %d commande(s) traitée(s) au total.\n",
+    $result['success'],
+    $result['failed'],
+    $result['total']
+);

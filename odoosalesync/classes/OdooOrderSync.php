@@ -277,17 +277,61 @@ class OdooOrderSync
             $startDateCondition = ' AND o.date_add >= "' . pSQL($startDate) . '"';
         }
 
+        // $hours à null : pas de fenêtre glissante, on ne borne que par la date de début
+        // (utilisé par la synchronisation manuelle, qui doit pouvoir rattraper au-delà de 48 h).
+        $windowCondition = $hours === null
+            ? ''
+            : ' AND o.date_add >= DATE_SUB(NOW(), INTERVAL ' . (int) $hours . ' HOUR)';
+
         $sql = 'SELECT o.id_order
                 FROM `' . _DB_PREFIX_ . 'orders` o
                 INNER JOIN `' . _DB_PREFIX_ . 'order_state` os ON os.id_order_state = o.current_state
                 LEFT JOIN `' . _DB_PREFIX_ . 'odoosync_order` s ON s.id_order = o.id_order
-                WHERE os.paid = 1
-                  AND o.date_add >= DATE_SUB(NOW(), INTERVAL ' . (int) $hours . ' HOUR)' . $startDateCondition . '
+                WHERE os.paid = 1' . $windowCondition . $startDateCondition . '
                   AND (s.id_odoosync_order IS NULL OR s.status = "error")
                 ORDER BY o.id_order ASC
                 LIMIT ' . (int) $limit;
 
         return Db::getInstance()->executeS($sql) ?: [];
+    }
+
+    /**
+     * Synchronise les commandes payées en attente (jamais synchronisées, ou en erreur).
+     * Utilisé par le cron et par le bouton « Synchroniser maintenant » du back-office.
+     *
+     * @param int|null $hours fenêtre glissante en heures, null pour ne pas en appliquer
+     *
+     * @return array{success:int,failed:int,total:int}
+     */
+    public static function runCatchUp($hours = 48, $limit = 50)
+    {
+        $orders = self::getOrdersToRetry($hours, $limit);
+        $sync = new self();
+
+        $success = 0;
+        $failed = 0;
+
+        foreach ($orders as $row) {
+            try {
+                // Hors requête front (CLI, ou back-office), le contexte boutique/langue/devise
+                // n'est pas celui de la commande : on le repositionne, sinon la lecture des
+                // produits et des prix échoue.
+                $order = new Order((int) $row['id_order']);
+                if (Validate::isLoadedObject($order)) {
+                    $context = Context::getContext();
+                    $context->shop = new Shop((int) $order->id_shop);
+                    $context->language = new Language((int) $order->id_lang);
+                    $context->currency = new Currency((int) $order->id_currency);
+                }
+
+                $sync->syncOrder((int) $row['id_order']);
+                $success++;
+            } catch (Throwable $e) {
+                $failed++;
+            }
+        }
+
+        return ['success' => $success, 'failed' => $failed, 'total' => count($orders)];
     }
 
     /**
@@ -303,13 +347,55 @@ class OdooOrderSync
             return null;
         }
 
-        $timestamp = strtotime($raw);
-        if ($timestamp === false) {
+        $isoDate = self::parseDate($raw);
+        if ($isoDate === null) {
             return null;
         }
 
         // On borne au début de la journée pour inclure toute commande passée le jour choisi.
-        return date('Y-m-d', $timestamp) . ' 00:00:00';
+        return $isoDate . ' 00:00:00';
+    }
+
+    /**
+     * Analyse une date saisie au format français (JJ/MM/AAAA) ou ISO (AAAA-MM-JJ)
+     * et la renvoie au format ISO, seul format stocké et comparable en SQL.
+     * Renvoie null si la date est invalide (ex. 31/02/2026).
+     *
+     * strtotime() est volontairement évité : il interprète "08/09/2026" à l'américaine.
+     *
+     * @return string|null date au format Y-m-d
+     */
+    public static function parseDate($raw)
+    {
+        $raw = trim((string) $raw);
+
+        if (preg_match('#^(\d{2})/(\d{2})/(\d{4})$#', $raw, $m)) {
+            [, $day, $month, $year] = $m;
+        } elseif (preg_match('#^(\d{4})-(\d{2})-(\d{2})$#', $raw, $m)) {
+            [, $year, $month, $day] = $m;
+        } else {
+            return null;
+        }
+
+        if (!checkdate((int) $month, (int) $day, (int) $year)) {
+            return null;
+        }
+
+        return sprintf('%04d-%02d-%02d', $year, $month, $day);
+    }
+
+    /**
+     * Formate une date ISO stockée pour l'affichage en français (JJ/MM/AAAA).
+     */
+    public static function formatDateForDisplay($isoDate)
+    {
+        $isoDate = trim((string) $isoDate);
+
+        if ($isoDate === '' || !preg_match('#^(\d{4})-(\d{2})-(\d{2})#', $isoDate, $m)) {
+            return $isoDate;
+        }
+
+        return $m[3] . '/' . $m[2] . '/' . $m[1];
     }
 
     public static function isBeforeStartDate($orderDate)

@@ -4,6 +4,7 @@ if (!defined('_PS_VERSION_')) {
 }
 
 require_once _PS_MODULE_DIR_ . 'odoosalesync/classes/OdooClient.php';
+require_once _PS_MODULE_DIR_ . 'odoosalesync/classes/OdooOrderSync.php';
 
 class AdminOdooSyncSettingsController extends ModuleAdminController
 {
@@ -27,6 +28,8 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
     {
         if (Tools::isSubmit('submitOdooSyncTest')) {
             $this->testConnection();
+        } elseif (Tools::isSubmit('submitOdooSyncNow')) {
+            $this->syncNow();
         } elseif (Tools::isSubmit('submitOdooSyncSettings')) {
             $this->saveSettings();
         }
@@ -41,11 +44,14 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
         Configuration::updateValue('ODOOSALESYNC_LOGIN', trim((string) Tools::getValue('ODOOSALESYNC_LOGIN')));
         Configuration::updateValue('ODOOSALESYNC_AUTOCONFIRM', (int) Tools::getValue('ODOOSALESYNC_AUTOCONFIRM'));
 
+        // Saisie en JJ/MM/AAAA, stockage en ISO : c'est le seul format comparable en SQL.
         $startDate = trim((string) Tools::getValue('ODOOSALESYNC_START_DATE'));
-        if ($startDate === '' || preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDate)) {
-            Configuration::updateValue('ODOOSALESYNC_START_DATE', $startDate);
+        if ($startDate === '') {
+            Configuration::updateValue('ODOOSALESYNC_START_DATE', '');
+        } elseif (($isoDate = OdooOrderSync::parseDate($startDate)) !== null) {
+            Configuration::updateValue('ODOOSALESYNC_START_DATE', $isoDate);
         } else {
-            $this->errors[] = $this->trans('Date de début de synchro invalide (format attendu : AAAA-MM-JJ). Valeur non modifiée.', [], 'Modules.Odoosalesync.Admin');
+            $this->errors[] = $this->trans('Date de début de synchro invalide (format attendu : JJ/MM/AAAA). Valeur non modifiée.', [], 'Modules.Odoosalesync.Admin');
         }
 
         $apiKey = trim((string) Tools::getValue('ODOOSALESYNC_API_KEY'));
@@ -54,6 +60,47 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
         }
 
         $this->confirmations[] = $this->trans('Paramètres mis à jour.', [], 'Modules.Odoosalesync.Admin');
+    }
+
+    /**
+     * Rattrapage manuel : synchronise les commandes payées en attente depuis la date de début.
+     * Sans fenêtre glissante, contrairement au cron, pour permettre une première synchro.
+     */
+    protected function syncNow()
+    {
+        $limit = 50;
+        $result = OdooOrderSync::runCatchUp(null, $limit);
+
+        if ($result['total'] === 0) {
+            $this->confirmations[] = $this->trans(
+                'Aucune commande à synchroniser : toutes les commandes payées depuis la date de début sont déjà dans Odoo.',
+                [],
+                'Modules.Odoosalesync.Admin'
+            );
+
+            return;
+        }
+
+        if ($result['success']) {
+            $this->confirmations[] = sprintf(
+                $this->trans('%d commande(s) synchronisée(s) vers Odoo.', [], 'Modules.Odoosalesync.Admin'),
+                $result['success']
+            );
+        }
+
+        if ($result['failed']) {
+            $this->errors[] = sprintf(
+                $this->trans('%d commande(s) en échec : voir le détail dans le Journal de synchronisation.', [], 'Modules.Odoosalesync.Admin'),
+                $result['failed']
+            );
+        }
+
+        if ($result['total'] >= $limit) {
+            $this->confirmations[] = sprintf(
+                $this->trans('Traitement limité à %d commandes par lot : relancez pour continuer.', [], 'Modules.Odoosalesync.Admin'),
+                $limit
+            );
+        }
     }
 
     protected function testConnection()
@@ -130,7 +177,8 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
                         'type' => 'text',
                         'label' => $this->trans('Date de début de synchro', [], 'Modules.Odoosalesync.Admin'),
                         'name' => 'ODOOSALESYNC_START_DATE',
-                        'desc' => $this->trans('Format AAAA-MM-JJ. Les commandes créées avant cette date ne sont jamais envoyées à Odoo (utile en première installation sur un site déjà en production). Laisser vide pour tout synchroniser.', [], 'Modules.Odoosalesync.Admin'),
+                        'desc' => $this->trans('Format JJ/MM/AAAA. Les commandes créées avant cette date ne sont jamais envoyées à Odoo (utile en première installation sur un site déjà en production). Laisser vide pour tout synchroniser.', [], 'Modules.Odoosalesync.Admin'),
+                        'hint' => $this->trans('Exemple : 28/08/2026', [], 'Modules.Odoosalesync.Admin'),
                         'class' => 'fixed-width-lg',
                     ],
                     [
@@ -166,6 +214,13 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
                         'icon' => 'process-icon-refresh',
                         'class' => 'btn btn-default pull-right',
                     ],
+                    [
+                        'title' => $this->trans('Synchroniser maintenant', [], 'Modules.Odoosalesync.Admin'),
+                        'name' => 'submitOdooSyncNow',
+                        'type' => 'submit',
+                        'icon' => 'process-icon-export',
+                        'class' => 'btn btn-default pull-right',
+                    ],
                 ],
             ],
         ];
@@ -193,7 +248,10 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
             'ODOOSALESYNC_DB' => Tools::getValue('ODOOSALESYNC_DB', Configuration::get('ODOOSALESYNC_DB')),
             'ODOOSALESYNC_LOGIN' => Tools::getValue('ODOOSALESYNC_LOGIN', Configuration::get('ODOOSALESYNC_LOGIN')),
             'ODOOSALESYNC_API_KEY' => '',
-            'ODOOSALESYNC_START_DATE' => Tools::getValue('ODOOSALESYNC_START_DATE', Configuration::get('ODOOSALESYNC_START_DATE')),
+            'ODOOSALESYNC_START_DATE' => Tools::getValue(
+                'ODOOSALESYNC_START_DATE',
+                OdooOrderSync::formatDateForDisplay(Configuration::get('ODOOSALESYNC_START_DATE'))
+            ),
             'ODOOSALESYNC_AUTOCONFIRM' => (int) Configuration::get('ODOOSALESYNC_AUTOCONFIRM'),
         ];
     }

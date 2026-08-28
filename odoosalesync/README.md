@@ -94,9 +94,59 @@ En effet, `with_user()` repasse l'environnement en mode non-privilégié (`su=Fa
    - activer/désactiver la confirmation automatique de la commande dans Odoo.
 4. Cliquer sur **Tester la connexion** pour valider les identifiants avant d'enregistrer.
 
+## Mettre à jour le module
+
+> **Ne jamais désinstaller/réinstaller pour mettre à jour.** La désinstallation supprime la table du journal de synchronisation **et toute la configuration** : URL, base, login, clé API et date de début. Il faudrait tout resaisir, et regénérer une clé API dans Odoo.
+
+La mise à jour conserve la configuration et le journal : seuls les fichiers sont remplacés.
+
+**Méthode 1 — par le back-office (zip)**
+
+1. Créer une archive du dossier du module (le zip doit contenir un dossier `odoosalesync/` à sa racine) :
+   ```bash
+   zip -r odoosalesync.zip odoosalesync
+   ```
+2. Modules > Gestionnaire de modules > **Ajouter un module** > envoyer le zip.
+   PrestaShop écrase les fichiers existants et détecte le changement de version.
+
+**Méthode 2 — par copie de fichiers (serveur)**
+
+1. Remplacer le contenu de `modules/odoosalesync/` par la nouvelle version.
+2. Rétablir les droits si nécessaire : `chown -R www-data:www-data modules/odoosalesync`.
+3. Déclencher la mise à jour :
+   ```bash
+   sudo -u www-data php bin/console prestashop:module upgrade odoosalesync
+   ```
+   À défaut, un simple passage sur la page Gestionnaire de modules suffit généralement à la déclencher.
+
+**Vérifier que la mise à jour a bien été prise en compte**
+
+Le numéro de version affiché sous le nom du module dans le Gestionnaire de modules doit correspondre à celui de la nouvelle version. S'il reste bloqué sur l'ancien :
+
+```bash
+sudo -u www-data php bin/console cache:clear
+```
+
+PrestaShop met en cache les informations des modules ; tant que le cache n'est pas vidé, l'ancienne version peut continuer à s'afficher — et surtout, les anciens fichiers PHP peuvent rester chargés.
+
+**Notes**
+
+- Les scripts du dossier `upgrade/` (ex. `upgrade-1.1.0.php`) sont exécutés automatiquement par PrestaShop lors du passage à la version correspondante ; ils n'écrasent jamais un paramètre déjà renseigné.
+- La version est déclarée à deux endroits qui doivent rester cohérents : `$this->version` dans `odoosalesync.php` et `<version>` dans `config.xml`.
+- Après mise à jour, vérifier rapidement que la page de configuration s'ouvre et cliquer sur **Tester la connexion**.
+
+## Lancer une synchronisation manuelle
+
+Le bouton **Synchroniser maintenant**, sur l'écran de configuration, traite les commandes payées en attente (jamais synchronisées, ou en erreur) depuis la date de début. Utile pour :
+
+- lancer la toute première synchronisation après l'installation, sans attendre une nouvelle commande ;
+- rattraper des commandes après avoir corrigé la cause d'une erreur (référence produit manquante dans Odoo, par exemple).
+
+Contrairement au cron, il n'applique **pas** de fenêtre glissante de 48 h : seule la date de début limite la portée. Le traitement se fait par lots de 50 commandes — s'il en reste, relancer le bouton.
+
 ## Date de début de synchro
 
-Champ **Date de début de synchro** (format `AAAA-MM-JJ`) : les commandes PrestaShop **créées avant cette date ne sont jamais envoyées à Odoo**, que ce soit par le hook de paiement ou par le cron de rattrapage.
+Champ **Date de début de synchro** (format `JJ/MM/AAAA`) : les commandes PrestaShop **créées avant cette date ne sont jamais envoyées à Odoo**, que ce soit par le hook de paiement, le bouton de synchronisation manuelle ou le cron de rattrapage.
 
 Objectif : lors d'une première installation sur un PrestaShop **déjà en production**, éviter d'importer tout l'historique des commandes dans Odoo. Seules les commandes à partir de la date choisie sont synchronisées.
 
@@ -150,4 +200,8 @@ Modules > Synchronisation Odoo > **Journal** liste toutes les tentatives de sync
 
 ## Note sur la vérification de ce module
 
-Ce module a été écrit et relu (conventions PrestaShop, cohérence de l'API JSON-RPC Odoo) mais **n'a pas été exécuté** dans un PrestaShop/Odoo réel : aucune instance des deux logiciels n'était disponible dans l'environnement où il a été développé. Le guide de test ci-dessus doit impérativement être suivi sur un environnement de staging avant toute mise en production.
+Le module a été testé sur une installation réelle **PrestaShop 9.1.4 + Odoo 19** (conteneurs jetables) : création de la commande et du client dans Odoo à la validation du paiement, réutilisation d'un client existant sans doublon, idempotence du hook, échec propre sans casser le tunnel de commande quand Odoo est injoignable ou qu'une référence produit manque, rattrapage par le cron, filtre de date de début, et rendu des deux écrans du back-office.
+
+Ces tests portent sur **Odoo 19 Community** : les modèles utilisés (`res.partner`, `product.product`, `sale.order`) et l'API JSON-RPC sont identiques en Enterprise, mais un module Enterprise modifiant le flux de vente pourrait changer le comportement.
+
+Le guide de test ci-dessus reste à exécuter sur votre propre environnement de staging avant mise en production : lui seul reflète votre configuration fiscale, vos références produits et vos modules tiers.
