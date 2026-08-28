@@ -217,8 +217,15 @@ class AdminOdooSyncLogController extends ModuleAdminController
                 'Modules.Odoosalesync.Admin'
             );
         } else {
+            // Commandes et bons de livraison reçoivent leur numéro dès leur création dans Odoo :
+            // s'il manque ici, c'est qu'il n'a pas encore été relevé, pas qu'il n'existe pas.
             $label = sprintf($this->trans('id %d', [], 'Modules.Odoosalesync.Admin'), $idRecord);
-            $title = '';
+            $title = $this->trans(
+                'Numéro Odoo pas encore relevé pour cette ligne. Il sera récupéré au prochain '
+                . 'passage du cron, ou via le bouton « Récupérer les numéros Odoo manquants ».',
+                [],
+                'Modules.Odoosalesync.Admin'
+            );
         }
 
         $url = $this->odooUrl($model, $idRecord);

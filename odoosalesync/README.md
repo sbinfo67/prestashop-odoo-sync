@@ -249,6 +249,8 @@ Ces deux étapes apparaissent dans le journal, colonnes **BL Odoo** et **Facture
 
 Une facture affichée **Brouillon** n'a pas encore de numéro : dans Odoo, il n'est attribué qu'à la validation. Le journal se complète tout seul au passage suivant du cron, qui récupère les numéros des pièces validées entre-temps.
 
+Contrairement aux factures, une **commande** et un **bon de livraison** reçoivent leur numéro dès leur création dans Odoo : un identifiant affiché à leur place signifie seulement qu'il n'a pas encore été relevé, jamais qu'il n'existe pas. Le cron les complète comme les factures.
+
 Si une colonne affiche `id 4700` au lieu d'un numéro, c'est que la pièce Odoo est connue mais que son numéro n'a pas été relevé — lignes antérieures à la version 1.3.5, ou document rattaché sans relecture. Le bouton **Récupérer les numéros Odoo manquants**, dans le bandeau au-dessus de la liste, va les chercher dans Odoo et complète le journal.
 
 > Si une relance affiche « sans étape à exécuter » et que ces colonnes restent vides, c'est que le statut PrestaShop de la commande ne figure dans aucun des statuts configurés. C'est le cas typique de commandes en *Livré* alors que seuls *Préparation en cours* et *Expédié* sont renseignés : ajoutez *Livré* aux **statuts déclenchant le cycle complet**. Le bouton **Réessayer** rejoue l'étape en erreur, sans refaire celles déjà réussies.
