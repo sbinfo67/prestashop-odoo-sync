@@ -135,6 +135,28 @@ class AdminOdooSyncLogController extends ModuleAdminController
         return $base . '/mail/view?model=' . urlencode($model) . '&res_id=' . (int) $idRecord;
     }
 
+    /**
+     * Bouton de retour vers la configuration, au-dessus de la liste.
+     *
+     * Le bouton équivalent de la barre d'outils est rendu par PrestaShop en simple icône,
+     * sans libellé, parmi celles du panneau : personne ne le trouve.
+     */
+    public function initContent()
+    {
+        // Avant parent::initContent() : celui-ci ajoute la liste au contenu déjà présent,
+        // puis le transmet au gabarit — après son appel, il serait trop tard.
+        $url = $this->context->link->getAdminLink('AdminOdooSyncSettings');
+
+        $this->content .= '<div class="panel"><a class="btn btn-default" href="' . htmlspecialchars($url) . '">'
+            . '<i class="icon-cogs"></i> '
+            . $this->trans('Configuration du module', [], 'Modules.Odoosalesync.Admin')
+            . '</a> <span class="help-block" style="display:inline-block;margin:0 0 0 10px">'
+            . $this->trans('Connexion Odoo, statuts déclencheurs, articles de port et de remise.', [], 'Modules.Odoosalesync.Admin')
+            . '</span></div>';
+
+        parent::initContent();
+    }
+
     public function displayOdooPicking($name, $row)
     {
         return $this->displayStep($name, $row, 'picking', 'stock.picking');
