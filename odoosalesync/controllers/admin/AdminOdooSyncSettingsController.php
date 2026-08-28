@@ -63,7 +63,22 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
         Configuration::updateValue('ODOOSALESYNC_DISCOUNT_REF', trim((string) Tools::getValue('ODOOSALESYNC_DISCOUNT_REF')));
         Configuration::updateValue('ODOOSALESYNC_STATE_DELIVERY', (int) Tools::getValue('ODOOSALESYNC_STATE_DELIVERY'));
         Configuration::updateValue('ODOOSALESYNC_STATE_INVOICE', (int) Tools::getValue('ODOOSALESYNC_STATE_INVOICE'));
-        Configuration::updateValue('ODOOSALESYNC_PAYMENT_TERM', trim((string) Tools::getValue('ODOOSALESYNC_PAYMENT_TERM')));
+        if (Tools::getIsset('ODOOSALESYNC_PAYMENT_TERM_ID')) {
+            $idTerm = (int) Tools::getValue('ODOOSALESYNC_PAYMENT_TERM_ID');
+            Configuration::updateValue('ODOOSALESYNC_PAYMENT_TERM_ID', $idTerm);
+
+            // Le libellé est conservé pour l'affichage et comme repli si l'identifiant disparaît.
+            $label = '';
+            foreach ((array) $this->fetchPaymentTerms() as $term) {
+                if ((int) $term['id'] === $idTerm) {
+                    $label = $term['name'];
+                    break;
+                }
+            }
+            Configuration::updateValue('ODOOSALESYNC_PAYMENT_TERM', $label);
+        } else {
+            Configuration::updateValue('ODOOSALESYNC_PAYMENT_TERM', trim((string) Tools::getValue('ODOOSALESYNC_PAYMENT_TERM')));
+        }
         Configuration::updateValue('ODOOSALESYNC_INVOICE_POST', (int) Tools::getValue('ODOOSALESYNC_INVOICE_POST'));
 
         // Saisie en JJ/MM/AAAA, stockage en ISO : c'est le seul format comparable en SQL.
@@ -240,13 +255,7 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
                         'desc' => $this->trans('Quand une commande atteint ce statut, la facture Odoo est créée. Le bon de livraison doit être validé au préalable, faute de quoi la facture serait vide.', [], 'Modules.Odoosalesync.Admin'),
                         'options' => ['query' => $this->orderStateOptions(), 'id' => 'id', 'name' => 'name'],
                     ],
-                    [
-                        'type' => 'text',
-                        'label' => $this->trans('Condition de paiement Odoo', [], 'Modules.Odoosalesync.Admin'),
-                        'name' => 'ODOOSALESYNC_PAYMENT_TERM',
-                        'desc' => $this->trans('Nom exact de la condition de paiement Odoo à appliquer à la facture (ex. « 30 Days »). Laisser vide pour conserver celle du client.', [], 'Modules.Odoosalesync.Admin'),
-                        'class' => 'fixed-width-lg',
-                    ],
+                    $this->paymentTermField(),
                     [
                         'type' => 'switch',
                         'label' => $this->trans('Comptabiliser la facture automatiquement', [], 'Modules.Odoosalesync.Admin'),
@@ -309,6 +318,54 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
     }
 
     /**
+     * Condition de paiement : liste déroulante alimentée depuis Odoo.
+     *
+     * On stocke l'identifiant, stable et sans ambiguïté de langue — « 30 Days » sur une base
+     * anglophone, « 30 jours » sur une base française. Si Odoo est injoignable au moment
+     * d'afficher l'écran, on retombe sur une saisie libre du nom pour ne pas bloquer.
+     */
+    protected function paymentTermField()
+    {
+        $terms = $this->fetchPaymentTerms();
+
+        if ($terms === null) {
+            return [
+                'type' => 'text',
+                'label' => $this->trans('Condition de paiement Odoo', [], 'Modules.Odoosalesync.Admin'),
+                'name' => 'ODOOSALESYNC_PAYMENT_TERM',
+                'desc' => $this->trans('Odoo est injoignable : la liste des conditions n\'a pas pu être chargée. Saisissez le nom exact de la condition (ex. « 30 jours »), ou revenez sur cet écran une fois la connexion rétablie pour la choisir dans une liste.', [], 'Modules.Odoosalesync.Admin'),
+                'class' => 'fixed-width-lg',
+            ];
+        }
+
+        $options = [['id' => 0, 'name' => $this->trans('— Celle du client dans Odoo —', [], 'Modules.Odoosalesync.Admin')]];
+
+        foreach ($terms as $term) {
+            $options[] = ['id' => (int) $term['id'], 'name' => $term['name']];
+        }
+
+        return [
+            'type' => 'select',
+            'label' => $this->trans('Condition de paiement Odoo', [], 'Modules.Odoosalesync.Admin'),
+            'name' => 'ODOOSALESYNC_PAYMENT_TERM_ID',
+            'desc' => $this->trans('Condition appliquée à la facture créée dans Odoo. La liste provient directement de votre Odoo.', [], 'Modules.Odoosalesync.Admin'),
+            'options' => ['query' => $options, 'id' => 'id', 'name' => 'name'],
+        ];
+    }
+
+    /**
+     * @return array|null les conditions de paiement Odoo, ou null si Odoo est injoignable
+     */
+    protected function fetchPaymentTerms()
+    {
+        try {
+            return OdooOrderSync::buildClientFromConfig()->searchRead('account.payment.term', [], ['id', 'name']);
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
      * Statuts de commande PrestaShop, pour les listes déroulantes de déclenchement.
      */
     protected function orderStateOptions()
@@ -337,6 +394,7 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
             'ODOOSALESYNC_STATE_DELIVERY' => (int) Configuration::get('ODOOSALESYNC_STATE_DELIVERY'),
             'ODOOSALESYNC_STATE_INVOICE' => (int) Configuration::get('ODOOSALESYNC_STATE_INVOICE'),
             'ODOOSALESYNC_PAYMENT_TERM' => Tools::getValue('ODOOSALESYNC_PAYMENT_TERM', Configuration::get('ODOOSALESYNC_PAYMENT_TERM')),
+            'ODOOSALESYNC_PAYMENT_TERM_ID' => (int) Configuration::get('ODOOSALESYNC_PAYMENT_TERM_ID'),
             'ODOOSALESYNC_INVOICE_POST' => (int) Configuration::get('ODOOSALESYNC_INVOICE_POST'),
             'ODOOSALESYNC_SHIPPING_REF' => Tools::getValue('ODOOSALESYNC_SHIPPING_REF', Configuration::get('ODOOSALESYNC_SHIPPING_REF')),
             'ODOOSALESYNC_DISCOUNT_REF' => Tools::getValue('ODOOSALESYNC_DISCOUNT_REF', Configuration::get('ODOOSALESYNC_DISCOUNT_REF')),

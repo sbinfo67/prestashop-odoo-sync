@@ -342,27 +342,42 @@ class OdooOrderSync
     }
 
     /**
-     * Applique la condition de paiement configurée, recherchée par son nom.
+     * Applique la condition de paiement configurée.
+     *
+     * L'identifiant Odoo fait foi : il ne dépend pas de la langue de la base, contrairement au
+     * nom (« 30 Days » / « 30 jours »). Le nom sert de repli si l'identifiant a disparu, par
+     * exemple après une restauration sur une autre base.
      */
     private function applyPaymentTerm($idInvoice)
     {
+        $idTerm = (int) Configuration::get('ODOOSALESYNC_PAYMENT_TERM_ID');
         $name = trim((string) Configuration::get('ODOOSALESYNC_PAYMENT_TERM'));
 
-        if ($name === '') {
+        if (!$idTerm && $name === '') {
             return;
         }
 
-        $terms = $this->client->searchRead('account.payment.term', [['name', '=', $name]], ['id'], 1);
+        $found = null;
 
-        if (empty($terms)) {
+        if ($idTerm) {
+            $rows = $this->client->searchRead('account.payment.term', [['id', '=', $idTerm]], ['id'], 1);
+            $found = !empty($rows) ? (int) $rows[0]['id'] : null;
+        }
+
+        if (!$found && $name !== '') {
+            $rows = $this->client->searchRead('account.payment.term', [['name', '=', $name]], ['id'], 1);
+            $found = !empty($rows) ? (int) $rows[0]['id'] : null;
+        }
+
+        if (!$found) {
             throw new OdooOrderSyncException(sprintf(
-                'Condition de paiement « %s » introuvable dans Odoo. Corrigez le nom dans la '
-                . 'configuration du module (il doit correspondre exactement à celui d\'Odoo).',
-                $name
+                'Condition de paiement introuvable dans Odoo (%s). Sélectionnez-la de nouveau '
+                . 'dans la configuration du module.',
+                $idTerm ? 'identifiant ' . $idTerm : 'nom « ' . $name . ' »'
             ));
         }
 
-        $this->client->executeKw('account.move', 'write', [[(int) $idInvoice], ['invoice_payment_term_id' => (int) $terms[0]['id']]]);
+        $this->client->executeKw('account.move', 'write', [[(int) $idInvoice], ['invoice_payment_term_id' => $found]]);
     }
 
     /**

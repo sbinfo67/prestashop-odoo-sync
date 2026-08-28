@@ -235,9 +235,13 @@ Au-delà de la commande, le module suit deux étapes déclenchées par les **sta
 
 Si le stock Odoo ne couvre pas l'intégralité des lignes, **rien n'est validé** : la synchro passe en erreur en nommant les articles et les quantités manquantes. L'opérateur ajuste le stock dans Odoo, puis relance depuis le journal — ou valide le bon à la main. Une validation partielle n'est jamais faite d'office : elle créerait des reliquats et une facture incomplète.
 
-**Facturation** — au statut configuré (par défaut *Expédié*), le module crée la facture Odoo, lui applique la condition de paiement choisie (par défaut « 30 Days ») et la comptabilise.
+**Facturation** — au statut configuré (par défaut *Expédié*), le module crée la facture Odoo, lui applique la condition de paiement choisie et la comptabilise.
 
 Le bon de livraison doit être validé au préalable, sans quoi la facture reprendrait des lignes vides. Le module le vérifie et refuse de facturer tant que ce n'est pas le cas, en le signalant clairement.
+
+La condition de paiement se choisit dans une **liste déroulante alimentée directement depuis votre Odoo** : pas de nom à saisir, donc pas d'écart de langue (« 30 Days » sur une base anglophone, « 30 jours » sur une base française) ni de faute de frappe. Le module retient l'identifiant Odoo, stable, et conserve le libellé comme repli si cet identifiant venait à disparaître.
+
+Si Odoo est injoignable au moment d'afficher l'écran de configuration, le champ retombe sur une saisie libre du nom, afin de ne pas bloquer le paramétrage.
 
 > La comptabilisation automatique peut être désactivée : la facture est alors créée en brouillon et vous la validez vous-même dans Odoo.
 

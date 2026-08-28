@@ -12,7 +12,7 @@ class Odoosalesync extends Module
     {
         $this->name = 'odoosalesync';
         $this->tab = 'administration';
-        $this->version = '1.6.0';
+        $this->version = '1.6.1';
         $this->author = 'SBINFO';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -40,7 +40,8 @@ class Odoosalesync extends Module
             && Configuration::updateValue('ODOOSALESYNC_AUTOCONFIRM', 1)
             && Configuration::updateValue('ODOOSALESYNC_STATE_DELIVERY', (int) Configuration::get('PS_OS_PREPARATION'))
             && Configuration::updateValue('ODOOSALESYNC_STATE_INVOICE', (int) Configuration::get('PS_OS_SHIPPING'))
-            && Configuration::updateValue('ODOOSALESYNC_PAYMENT_TERM', '30 Days')
+            && Configuration::updateValue('ODOOSALESYNC_PAYMENT_TERM', '')
+            && Configuration::updateValue('ODOOSALESYNC_PAYMENT_TERM_ID', 0)
             && Configuration::updateValue('ODOOSALESYNC_INVOICE_POST', 1)
             && Configuration::updateValue('ODOOSALESYNC_SHIPPING_REF', '')
             && Configuration::updateValue('ODOOSALESYNC_DISCOUNT_REF', '')
@@ -62,6 +63,7 @@ class Odoosalesync extends Module
             && Configuration::deleteByName('ODOOSALESYNC_STATE_DELIVERY')
             && Configuration::deleteByName('ODOOSALESYNC_STATE_INVOICE')
             && Configuration::deleteByName('ODOOSALESYNC_PAYMENT_TERM')
+            && Configuration::deleteByName('ODOOSALESYNC_PAYMENT_TERM_ID')
             && Configuration::deleteByName('ODOOSALESYNC_INVOICE_POST')
             && Configuration::deleteByName('ODOOSALESYNC_SHIPPING_REF')
             && Configuration::deleteByName('ODOOSALESYNC_DISCOUNT_REF')
