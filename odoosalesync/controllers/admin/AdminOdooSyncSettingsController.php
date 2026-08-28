@@ -13,7 +13,7 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
 
         parent::__construct();
 
-        $this->meta_title = $this->l('Synchronisation Odoo');
+        $this->meta_title = $this->trans('Synchronisation Odoo', [], 'Modules.Odoosalesync.Admin');
     }
 
     public function initContent()
@@ -45,7 +45,7 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
         if ($startDate === '' || preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDate)) {
             Configuration::updateValue('ODOOSALESYNC_START_DATE', $startDate);
         } else {
-            $this->errors[] = $this->l('Date de début de synchro invalide (format attendu : AAAA-MM-JJ). Valeur non modifiée.');
+            $this->errors[] = $this->trans('Date de début de synchro invalide (format attendu : AAAA-MM-JJ). Valeur non modifiée.', [], 'Modules.Odoosalesync.Admin');
         }
 
         $apiKey = trim((string) Tools::getValue('ODOOSALESYNC_API_KEY'));
@@ -53,7 +53,7 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
             Configuration::updateValue('ODOOSALESYNC_API_KEY', $apiKey);
         }
 
-        $this->confirmations[] = $this->l('Paramètres mis à jour.');
+        $this->confirmations[] = $this->trans('Paramètres mis à jour.', [], 'Modules.Odoosalesync.Admin');
     }
 
     protected function testConnection()
@@ -68,13 +68,17 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
 
             $uid = $client->authenticate();
 
-            $this->confirmations[] = sprintf($this->l('Connexion Odoo réussie (uid %d).'), $uid);
+            $this->confirmations[] = sprintf($this->trans('Connexion Odoo réussie (uid %d).', [], 'Modules.Odoosalesync.Admin'), $uid);
         } catch (Throwable $e) {
-            $this->errors[] = sprintf($this->l('Échec de connexion à Odoo : %s'), $e->getMessage());
+            $this->errors[] = sprintf($this->trans('Échec de connexion à Odoo : %s', [], 'Modules.Odoosalesync.Admin'), $e->getMessage());
         }
     }
 
-    protected function renderForm()
+    /**
+     * Doit rester "public" : AdminControllerCore::renderForm() l'est, et PHP interdit
+     * de restreindre la visibilité d'une méthode héritée (fatal error au chargement).
+     */
+    public function renderForm()
     {
         $cronCli = '*/10 * * * * php ' . _PS_MODULE_DIR_ . 'odoosalesync/cron.php';
         $cronUrl = $this->context->link->getBaseLink() . 'modules/odoosalesync/cron.php?token=' . Configuration::get('ODOOSALESYNC_CRON_TOKEN');
@@ -82,70 +86,71 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
         $fieldsForm = [
             'form' => [
                 'legend' => [
-                    'title' => $this->l('Connexion à Odoo'),
+                    'title' => $this->trans('Connexion à Odoo', [], 'Modules.Odoosalesync.Admin'),
                     'icon' => 'icon-cogs',
                 ],
                 'input' => [
                     [
                         'type' => 'text',
-                        'label' => $this->l('URL Odoo'),
+                        'label' => $this->trans('URL Odoo', [], 'Modules.Odoosalesync.Admin'),
                         'name' => 'ODOOSALESYNC_URL',
-                        'desc' => $this->l('Exemple : https://odoo.mondomaine.local'),
+                        'desc' => $this->trans('Exemple : https://odoo.mondomaine.local', [], 'Modules.Odoosalesync.Admin'),
                         'required' => true,
                     ],
                     [
                         'type' => 'text',
-                        'label' => $this->l('Base de données Odoo'),
+                        'label' => $this->trans('Base de données Odoo', [], 'Modules.Odoosalesync.Admin'),
                         'name' => 'ODOOSALESYNC_DB',
                         'required' => true,
                     ],
                     [
                         'type' => 'text',
-                        'label' => $this->l('Login API'),
+                        'label' => $this->trans('Login API', [], 'Modules.Odoosalesync.Admin'),
                         'name' => 'ODOOSALESYNC_LOGIN',
                         'required' => true,
                     ],
                     [
                         'type' => 'password',
-                        'label' => $this->l('Clé API'),
+                        'label' => $this->trans('Clé API', [], 'Modules.Odoosalesync.Admin'),
                         'name' => 'ODOOSALESYNC_API_KEY',
-                        'desc' => $this->l('Laisser vide pour conserver la clé actuellement enregistrée.'),
+                        'desc' => $this->trans('Laisser vide pour conserver la clé actuellement enregistrée.', [], 'Modules.Odoosalesync.Admin')
+                            . ' ' . $this->trans('La clé se génère dans Odoo en étant connecté avec le compte concerné : Préférences > Sécurité du compte > Nouvelle clé API. Un administrateur ne peut pas la générer depuis la fiche d\'un autre utilisateur.', [], 'Modules.Odoosalesync.Admin'),
                     ],
                     [
                         'type' => 'text',
-                        'label' => $this->l('Date de début de synchro'),
+                        'label' => $this->trans('Date de début de synchro', [], 'Modules.Odoosalesync.Admin'),
                         'name' => 'ODOOSALESYNC_START_DATE',
-                        'desc' => $this->l('Format AAAA-MM-JJ. Les commandes créées avant cette date ne sont jamais envoyées à Odoo (utile en première installation sur un site déjà en production). Laisser vide pour tout synchroniser.'),
+                        'desc' => $this->trans('Format AAAA-MM-JJ. Les commandes créées avant cette date ne sont jamais envoyées à Odoo (utile en première installation sur un site déjà en production). Laisser vide pour tout synchroniser.', [], 'Modules.Odoosalesync.Admin'),
                         'class' => 'fixed-width-lg',
                     ],
                     [
                         'type' => 'switch',
-                        'label' => $this->l('Confirmer automatiquement la commande dans Odoo'),
+                        'label' => $this->trans('Confirmer automatiquement la commande dans Odoo', [], 'Modules.Odoosalesync.Admin'),
                         'name' => 'ODOOSALESYNC_AUTOCONFIRM',
                         'values' => [
-                            ['id' => 'active_on', 'value' => 1, 'label' => $this->l('Oui')],
-                            ['id' => 'active_off', 'value' => 0, 'label' => $this->l('Non')],
+                            ['id' => 'active_on', 'value' => 1, 'label' => $this->trans('Oui', [], 'Modules.Odoosalesync.Admin')],
+                            ['id' => 'active_off', 'value' => 0, 'label' => $this->trans('Non', [], 'Modules.Odoosalesync.Admin')],
                         ],
                     ],
                     [
                         'type' => 'html',
                         'name' => 'cron_info',
-                        'label' => $this->l('Cron de rattrapage'),
+                        'label' => $this->trans('Cron de rattrapage', [], 'Modules.Odoosalesync.Admin'),
                         'html_content' => '<p class="help-block">'
-                            . $this->l('Recommandé (CLI, contourne le blocage .htaccess de PrestaShop 9) — à ajouter au crontab système :')
+                            . $this->trans('Recommandé (CLI, contourne le blocage .htaccess de PrestaShop 9) — à ajouter au crontab système :', [], 'Modules.Odoosalesync.Admin')
                             . '</p><code>' . htmlspecialchars($cronCli) . '</code>'
                             . '<p class="help-block" style="margin-top:10px">'
-                            . $this->l('Mode URL optionnel (nécessite d\'autoriser le fichier dans la config du serveur web) :')
+                            . $this->trans('Mode URL optionnel (nécessite d\'autoriser le fichier dans la config du serveur web) :', [], 'Modules.Odoosalesync.Admin')
                             . '</p><code>' . htmlspecialchars($cronUrl) . '</code>',
                     ],
                 ],
                 'submit' => [
-                    'title' => $this->l('Enregistrer'),
+                    'title' => $this->trans('Enregistrer', [], 'Modules.Odoosalesync.Admin'),
                     'name' => 'submitOdooSyncSettings',
                 ],
                 'buttons' => [
                     [
-                        'title' => $this->l('Tester la connexion'),
+                        'title' => $this->trans('Tester la connexion', [], 'Modules.Odoosalesync.Admin'),
                         'name' => 'submitOdooSyncTest',
                         'type' => 'submit',
                         'icon' => 'process-icon-refresh',
@@ -157,7 +162,7 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
 
         $helper = new HelperForm();
         $helper->show_toolbar = false;
-        $helper->module = $this;
+        $helper->module = $this->module;
         $helper->default_form_language = (int) $this->context->language->id;
         $helper->submit_action = 'submitOdooSyncSettings';
         $helper->currentIndex = $this->context->link->getAdminLink('AdminOdooSyncSettings', false);

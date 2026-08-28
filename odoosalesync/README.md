@@ -13,13 +13,76 @@ Module PrestaShop 8/9 qui crée automatiquement une commande de vente (`sale.ord
 
 ## Prérequis côté Odoo
 
-1. Créer un utilisateur technique dédié (ex. `prestashop-sync@votredomaine.com`) avec les droits :
+1. Choisir le compte Odoo que le module utilisera pour se connecter. Il lui faut les droits :
    - Ventes : Utilisateur (création/lecture de commandes) ;
    - Contacts : création/lecture.
-2. Générer une **clé API** pour cet utilisateur : Réglages > Utilisateurs & Companies > Utilisateurs > (ouvrir l'utilisateur) > onglet Sécurité du compte > Clés API > Nouvelle clé API.
-   C'est cette clé, et non le mot de passe du compte, qui doit être utilisée dans la configuration du module.
+
+   **Compte dédié ou compte existant ?** Un utilisateur technique dédié (ex. `prestashop-sync@votredomaine.com`) est préférable — droits limités au strict nécessaire, révocable sans impacter personne. Mais sur **Odoo Enterprise, chaque utilisateur interne consomme une licence payante** : créer un compte dédié uniquement pour la synchronisation augmente la facture. Il n'existe pas de type de compte « API » gratuit (un utilisateur portail n'a pas les droits nécessaires pour créer des commandes de vente).
+
+   Réutiliser un compte existant est donc un compromis acceptable. À garder en tête dans ce cas :
+   - la clé API donne à PrestaShop **tous les droits de ce compte** ;
+   - les commandes créées dans Odoo apparaîtront comme saisies par cet utilisateur ;
+   - si le compte est désactivé (départ d'un salarié, par exemple), la synchronisation s'arrête — privilégier un compte pérenne, pas celui d'une personne physique susceptible de partir.
+
+   > Sur Odoo 19, si vous créez un compte dédié, le faire **par l'interface**. Le champ `groups_id` de `res.users` a été renommé dans cette version : un script d'import qui l'utilise échoue avec `ValueError: Invalid field 'groups_id'`.
+
+2. Générer une **clé API** pour ce compte (voir la section suivante, c'est le point qui piège le plus souvent).
 3. Noter : l'URL de base d'Odoo, le nom de la base de données, le login et la clé API.
 4. Vérifier que le serveur PrestaShop peut atteindre l'URL Odoo (`curl https://votre-odoo/jsonrpc` doit répondre, même par une erreur JSON-RPC plutôt qu'un timeout).
+
+### Générer la clé API (⚠ piège classique)
+
+Dans Odoo, **une clé API ne peut être générée que par l'utilisateur lui-même, pour son propre compte**. Un administrateur ne peut pas en créer pour un autre utilisateur depuis l'interface : en ouvrant la fiche d'un autre utilisateur, l'onglet « Sécurité » n'affiche que le mot de passe et la 2FA, **sans section « Clés API »**. Ce n'est pas un problème de droits.
+
+**Méthode 1 — depuis l'interface (sans accès serveur)**
+
+Se connecter à Odoo **avec le compte concerné lui-même**, puis :
+avatar en haut à droite > **Préférences** (Mon profil) > onglet **Sécurité du compte** > **Nouvelle clé API** > confirmer avec le mot de passe de ce compte.
+
+La clé n'est affichée qu'une seule fois : la copier immédiatement dans la configuration du module.
+
+**Méthode 2 — depuis le serveur (Odoo on-premise)**
+
+Utile si le mot de passe du compte n'est pas connu, ou pour automatiser le déploiement.
+
+Ouvrir un shell Odoo. La commande doit être lancée **en tant qu'utilisateur système `odoo`** et pointer sur le fichier de configuration, sinon Odoo tente de se connecter à PostgreSQL avec le rôle correspondant à l'utilisateur courant et échoue (`FATAL: role "root" does not exist`) :
+
+```bash
+# Installation par paquet (.deb / .rpm) — cas le plus courant
+sudo -u odoo odoo shell -c /etc/odoo/odoo.conf -d VOTRE_BASE --no-http
+
+# Variante : identifiants PostgreSQL passés explicitement
+sudo -u odoo odoo shell -d VOTRE_BASE \
+  --db_host=localhost --db_user=odoo --db_password=VOTRE_MDP_PG --no-http
+
+# Installation depuis les sources (le binaire s'appelle odoo-bin)
+sudo -u odoo ./odoo-bin shell -c /etc/odoo/odoo.conf -d VOTRE_BASE --no-http
+
+# Docker
+docker compose exec odoo odoo shell -d VOTRE_BASE \
+  --db_host=NOM_SERVICE_DB --db_user=odoo --db_password=odoo --no-http
+```
+
+Puis, dans le shell :
+
+```python
+user = env['res.users'].search([('login', '=', 'LOGIN_DU_COMPTE_ODOO')], limit=1)
+key = env['res.users.apikeys'].with_user(user).sudo()._generate('rpc', 'prestashop-sync', False)
+print(key)
+env.cr.commit()
+```
+
+Le `.sudo()` n'est pas optionnel si le compte visé n'est pas administrateur. Sans lui, Odoo répond :
+
+```
+ValidationError: La clé API doit avoir une date d'expiration
+```
+
+En effet, `with_user()` repasse l'environnement en mode non-privilégié (`su=False`), et `_check_expiration_date` n'autorise une clé sans expiration que pour un utilisateur « système ». Le `.sudo()` restaure ce privilège **sans changer l'utilisateur propriétaire** de la clé, qui reste bien celui recherché.
+
+> **Ne pas contourner l'erreur en passant simplement une date d'expiration.** Pour un compte non administrateur, la durée est plafonnée à `max(group.api_key_duration) or 1.0` jour — sans configuration particulière, la clé expirerait donc **au bout d'un jour** et la synchronisation s'arrêterait silencieusement (les commandes partiraient en `error` dans le journal). Une clé sans expiration, générée en `sudo`, est ce qu'il faut ici.
+
+**À propos du mot de passe** : techniquement, le module fonctionne aussi si l'on saisit le mot de passe du compte à la place de la clé API (Odoo accepte les deux sur `execute_kw`). **C'est déconseillé en production** : le mot de passe se retrouve stocké dans la base PrestaShop, et la synchronisation cesse de fonctionner dès que la double authentification est activée sur ce compte — ce qui n'est pas le cas d'une clé API.
 
 ## Installation
 

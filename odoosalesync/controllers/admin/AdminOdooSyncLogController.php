@@ -19,29 +19,31 @@ class AdminOdooSyncLogController extends ModuleAdminController
         $this->_defaultOrderBy = 'date_upd';
         $this->_defaultOrderWay = 'DESC';
 
+        parent::__construct();
+
+        // Après parent::__construct() uniquement : le traducteur n'existe pas avant,
+        // et $this->trans() échouerait sur "Call to a member function trans() on null".
         $this->fields_list = [
-            'id_odoosync_order' => ['title' => $this->l('ID'), 'align' => 'center'],
-            'id_order' => ['title' => $this->l('Commande PrestaShop'), 'align' => 'center'],
-            'id_odoo_order' => ['title' => $this->l('Commande Odoo'), 'align' => 'center'],
-            'id_odoo_partner' => ['title' => $this->l('Client Odoo'), 'align' => 'center'],
+            'id_odoosync_order' => ['title' => $this->trans('ID', [], 'Modules.Odoosalesync.Admin'), 'align' => 'center'],
+            'id_order' => ['title' => $this->trans('Commande PrestaShop', [], 'Modules.Odoosalesync.Admin'), 'align' => 'center'],
+            'id_odoo_order' => ['title' => $this->trans('Commande Odoo', [], 'Modules.Odoosalesync.Admin'), 'align' => 'center'],
+            'id_odoo_partner' => ['title' => $this->trans('Client Odoo', [], 'Modules.Odoosalesync.Admin'), 'align' => 'center'],
             'status' => [
-                'title' => $this->l('Statut'),
+                'title' => $this->trans('Statut', [], 'Modules.Odoosalesync.Admin'),
                 'align' => 'center',
                 'type' => 'select',
-                'list' => ['success' => $this->l('Succès'), 'error' => $this->l('Erreur')],
+                'list' => ['success' => $this->trans('Succès', [], 'Modules.Odoosalesync.Admin'), 'error' => $this->trans('Erreur', [], 'Modules.Odoosalesync.Admin')],
                 'filter_key' => 'status',
             ],
-            'message' => ['title' => $this->l('Message'), 'orderby' => false, 'search' => false],
-            'date_upd' => ['title' => $this->l('Dernière tentative'), 'type' => 'datetime'],
+            'message' => ['title' => $this->trans('Message', [], 'Modules.Odoosalesync.Admin'), 'orderby' => false, 'search' => false],
+            'date_upd' => ['title' => $this->trans('Dernière tentative', [], 'Modules.Odoosalesync.Admin'), 'type' => 'datetime'],
         ];
-
-        parent::__construct();
 
         $this->addRowAction('retry');
 
         $this->toolbar_btn['retry_all_errors'] = [
             'href' => self::$currentIndex . '&retryAllErrors=1&token=' . $this->token,
-            'desc' => $this->l('Réessayer toutes les synchros en erreur'),
+            'desc' => $this->trans('Réessayer toutes les synchros en erreur', [], 'Modules.Odoosalesync.Admin'),
             'icon' => 'process-icon-refresh',
         ];
     }
@@ -51,8 +53,8 @@ class AdminOdooSyncLogController extends ModuleAdminController
         $idOrder = (int) ($row['id_order'] ?? 0);
         $url = self::$currentIndex . '&id_order=' . $idOrder . '&retryOrder=1&token=' . $this->token;
 
-        return '<a class="btn btn-default" href="' . $url . '" title="' . $this->l('Réessayer') . '">'
-            . '<i class="icon-refresh"></i> ' . $this->l('Réessayer')
+        return '<a class="btn btn-default" href="' . $url . '" title="' . $this->trans('Réessayer', [], 'Modules.Odoosalesync.Admin') . '">'
+            . '<i class="icon-refresh"></i> ' . $this->trans('Réessayer', [], 'Modules.Odoosalesync.Admin')
             . '</a>';
     }
 
@@ -90,11 +92,11 @@ class AdminOdooSyncLogController extends ModuleAdminController
         }
 
         if ($success) {
-            $this->confirmations[] = sprintf($this->l('%d commande(s) synchronisée(s) avec succès.'), $success);
+            $this->confirmations[] = sprintf($this->trans('%d commande(s) synchronisée(s) avec succès.', [], 'Modules.Odoosalesync.Admin'), $success);
         }
 
         if ($failed) {
-            $this->errors[] = sprintf($this->l('%d commande(s) toujours en échec, voir le message ci-dessous.'), $failed);
+            $this->errors[] = sprintf($this->trans('%d commande(s) toujours en échec, voir le message ci-dessous.', [], 'Modules.Odoosalesync.Admin'), $failed);
         }
     }
 }
