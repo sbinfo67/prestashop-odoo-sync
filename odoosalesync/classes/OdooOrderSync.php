@@ -339,8 +339,21 @@ class OdooOrderSync
     {
         $this->assertDeliveryDone($idOdooOrder);
 
-        $before = $this->client->searchRead('sale.order', [['id', '=', $idOdooOrder]], ['invoice_ids'], 1);
+        $before = $this->client->searchRead('sale.order', [['id', '=', $idOdooOrder]], ['invoice_ids', 'invoice_status'], 1);
         $existing = !empty($before) ? array_map('intval', (array) $before[0]['invoice_ids']) : [];
+
+        // Commande déjà facturée dans Odoo (facture établie à la main, ou reprise d'un suivi
+        // perdu) : on rattache la facture existante au lieu d'échouer sur « No items available ».
+        if (!empty($before) && $before[0]['invoice_status'] === 'invoiced' && $existing) {
+            $idInvoice = (int) end($existing);
+            $invoice = $this->client->searchRead('account.move', [['id', '=', $idInvoice]], ['name'], 1);
+
+            return [
+                'id' => $idInvoice,
+                'name' => !empty($invoice) ? (string) $invoice[0]['name'] : null,
+                'message' => 'Facture déjà présente dans Odoo, rattachée sans en créer de nouvelle.',
+            ];
+        }
 
         // _create_invoices est une méthode privée, inaccessible par l'API : il faut passer par
         // l'assistant de facturation. Le contexte doit lui être fourni dès sa création, sinon il
@@ -1135,11 +1148,52 @@ class OdooOrderSync
                 INNER JOIN `' . _DB_PREFIX_ . 'order_state` os ON os.id_order_state = o.current_state
                 LEFT JOIN `' . _DB_PREFIX_ . 'odoosync_order` s ON s.id_order = o.id_order
                 WHERE os.paid = 1' . $windowCondition . $startDateCondition . '
-                  AND (s.id_odoosync_order IS NULL OR s.status = "error")
+                  AND (s.id_odoosync_order IS NULL OR s.status = "error"' . self::pendingStepsCondition() . ')
                 ORDER BY o.id_order ASC
                 LIMIT ' . (int) $limit;
 
         return Db::getInstance()->executeS($sql) ?: [];
+    }
+
+    /**
+     * Condition retenant aussi les commandes déjà synchronisées dont il reste une étape à faire.
+     *
+     * Sans cela, une commande passée en succès avant l'activation de la livraison et de la
+     * facturation ne serait jamais reprise : le rattrapage ignore les lignes en succès.
+     */
+    private static function pendingStepsCondition()
+    {
+        $invoiceState = (int) Configuration::get('ODOOSALESYNC_STATE_INVOICE');
+        $deliveryState = (int) Configuration::get('ODOOSALESYNC_STATE_DELIVERY');
+
+        // États attendant la chaîne complète (livraison puis facture).
+        $full = self::getFullCycleStates();
+        if ($invoiceState) {
+            $full[] = $invoiceState;
+        }
+        $full = array_values(array_unique(array_filter($full)));
+
+        // États n'attendant que la livraison.
+        $deliveryOnly = ($deliveryState && !in_array($deliveryState, $full, true)) ? [$deliveryState] : [];
+
+        $clauses = [];
+
+        if ($full) {
+            $clauses[] = '(o.current_state IN (' . implode(',', $full) . ')'
+                . ' AND (s.picking_status IS NULL OR s.picking_status = "error"'
+                . ' OR s.invoice_status IS NULL OR s.invoice_status = "error"))';
+        }
+
+        if ($deliveryOnly) {
+            $clauses[] = '(o.current_state IN (' . implode(',', $deliveryOnly) . ')'
+                . ' AND (s.picking_status IS NULL OR s.picking_status = "error"))';
+        }
+
+        if (!$clauses) {
+            return '';
+        }
+
+        return ' OR (s.status = "success" AND (' . implode(' OR ', $clauses) . '))';
     }
 
     /**

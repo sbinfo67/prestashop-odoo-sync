@@ -253,6 +253,10 @@ Lors de la première synchronisation d'une boutique en production, les commandes
 
 Le champ **Statuts déclenchant le cycle complet** répond à ce cas : une commande dont le statut PrestaShop figure dans cette liste (typiquement *Livré*) enchaîne **commande, bon de livraison et facture** en une seule passe, via le bouton *Synchroniser maintenant* ou le cron.
 
+Le rattrapage reprend aussi les commandes **déjà synchronisées** dont il reste une étape à faire : celles envoyées dans Odoo avant l'activation de la livraison et de la facturation ne sont pas laissées de côté. Aucune commande Odoo n'est recréée au passage.
+
+Une commande **déjà facturée dans Odoo** (facture établie à la main, par exemple) est rattachée telle quelle, sans qu'une seconde facture soit créée.
+
 Chaque étape est ignorée si elle a déjà réussi : relancer la chaîne est donc sans risque. Si un bon de livraison échoue faute de stock, corrigez le stock dans Odoo puis cliquez sur **Réessayer** — la reprise repart du bon de livraison et poursuit jusqu'à la facture, sans recréer la commande.
 
 > **Le stock Odoo est décrémenté au moment de la validation des bons de livraison**, y compris pour des commandes anciennes. Si vous avez déjà ajusté manuellement votre stock Odoo pour tenir compte de ces ventes, il serait décompté deux fois. Reprenez l'historique **avant** de caler votre stock, ou ajustez-le après coup.
