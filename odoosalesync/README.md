@@ -243,7 +243,9 @@ La condition de paiement se choisit dans une **liste déroulante alimentée dire
 
 Si Odoo est injoignable au moment d'afficher l'écran de configuration, le champ retombe sur une saisie libre du nom, afin de ne pas bloquer le paramétrage.
 
-> La comptabilisation automatique peut être désactivée : la facture est alors créée en brouillon et vous la validez vous-même dans Odoo.
+> La comptabilisation automatique peut être désactivée : la facture est alors créée en brouillon et vous la validez vous-même dans Odoo. C'est le réglage à privilégier pour une mise en route, le temps de contrôler les premiers cycles.
+>
+> Une facture en brouillon **n'a ni numéro ni date** dans Odoo : les deux lui sont attribués au moment de la validation. Une facture créée aujourd'hui et validée dans trois semaines portera donc la date de validation, et son échéance courra à partir de là. Aucune écriture ne peut ainsi tomber dans une période déjà déclarée, mais si vous validez par lots, tout le lot sera daté du jour de validation.
 
 Ces deux étapes apparaissent dans le journal, colonnes **BL Odoo** et **Facture Odoo**, avec le numéro Odoo cliquable. Une étape non encore déclenchée reste vide (`—`), ce qui la distingue d'un échec.
 
