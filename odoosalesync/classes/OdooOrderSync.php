@@ -80,6 +80,10 @@ class OdooOrderSync
         $existing = $this->getSyncRow($idOrder);
 
         if ($existing && $existing['status'] === 'success') {
+            // Les lignes créées avant la 1.3.5 n'ont pas de numéro de commande Odoo, et ce
+            // retour anticipé ne les corrigeait jamais : on complète au passage.
+            $this->fillMissingOrderName($existing);
+
             return [
                 'id_odoo_order' => (int) $existing['id_odoo_order'],
                 'id_odoo_partner' => (int) $existing['id_odoo_partner'],
@@ -1159,6 +1163,36 @@ class OdooOrderSync
                 LIMIT ' . (int) $limit;
 
         return Db::getInstance()->executeS($sql) ?: [];
+    }
+
+    /**
+     * Complète le numéro de commande Odoo d'une ligne qui n'en a pas.
+     * Silencieux en cas d'indisponibilité d'Odoo : ce n'est qu'un confort d'affichage.
+     */
+    private function fillMissingOrderName(array $row)
+    {
+        $idOdooOrder = (int) ($row['id_odoo_order'] ?? 0);
+        $name = trim((string) ($row['odoo_order_name'] ?? ''));
+
+        if (!$idOdooOrder || ($name !== '' && $name !== '/')) {
+            return;
+        }
+
+        try {
+            $found = $this->client->searchRead('sale.order', [['id', '=', $idOdooOrder]], ['name'], 1);
+        } catch (Throwable $e) {
+            return;
+        }
+
+        if (empty($found) || (string) $found[0]['name'] === '' || (string) $found[0]['name'] === '/') {
+            return;
+        }
+
+        Db::getInstance()->update(
+            'odoosync_order',
+            ['odoo_order_name' => pSQL((string) $found[0]['name'])],
+            'id_order = ' . (int) $row['id_order']
+        );
     }
 
     /**
