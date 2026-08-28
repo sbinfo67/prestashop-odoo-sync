@@ -19,9 +19,25 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
 
     public function initContent()
     {
-        $this->content .= $this->renderForm();
+        $this->content .= $this->renderJournalLink() . $this->renderForm();
 
         parent::initContent();
+    }
+
+    /**
+     * Les onglets créés par le module n'apparaissent pas dans le menu de PrestaShop 9 :
+     * sans ce lien, le journal de synchronisation est difficilement atteignable.
+     */
+    protected function renderJournalLink()
+    {
+        $url = $this->context->link->getAdminLink('AdminOdooSyncLog');
+
+        return '<div class="panel"><a class="btn btn-default" href="' . htmlspecialchars($url) . '">'
+            . '<i class="icon-list"></i> '
+            . $this->trans('Ouvrir le journal de synchronisation', [], 'Modules.Odoosalesync.Admin')
+            . '</a> <span class="help-block" style="display:inline-block;margin:0 0 0 10px">'
+            . $this->trans('Détail des commandes synchronisées et des erreurs, avec possibilité de réessayer.', [], 'Modules.Odoosalesync.Admin')
+            . '</span></div>';
     }
 
     public function postProcess()

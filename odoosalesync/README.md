@@ -8,7 +8,7 @@ Module PrestaShop 8/9 qui crée automatiquement une commande de vente (`sale.ord
    - recherche le client dans Odoo par email ; s'il n'existe pas, le crée (nom, email, adresse, téléphone, pays) ;
    - retrouve chaque produit de la commande dans Odoo par sa référence (`product.product.default_code` = référence PrestaShop, comparaison **sensible à la casse**) ;
    - crée une commande `sale.order` avec ces lignes, et la confirme automatiquement (option désactivable) ;
-   - enregistre le résultat dans une table de suivi (`ps_odoosync_order`), visible dans **Modules > Synchronisation Odoo > Journal**.
+   - enregistre le résultat dans une table de suivi (`ps_odoosync_order`), consultable via le bouton **Ouvrir le journal de synchronisation** de l'écran de configuration.
 2. Toute erreur (Odoo injoignable, produit non mappé, etc.) est capturée : **le paiement du client n'est jamais bloqué**. L'erreur est journalisée et peut être corrigée puis rejouée manuellement, ou rattrapée automatiquement par le cron.
 
 ## Prérequis côté Odoo
@@ -88,7 +88,7 @@ En effet, `with_user()` repasse l'environnement en mode non-privilégié (`su=Fa
 
 1. Copier le dossier `odoosalesync/` dans `modules/` de l'installation PrestaShop.
 2. Dans le back-office : Modules > Gestionnaire de modules > rechercher "Synchronisation Odoo" > Installer.
-3. Aller dans Modules > **Synchronisation Odoo** (ou via le menu Administration créé par le module) et renseigner :
+3. Ouvrir la configuration du module (Gestionnaire de modules > **Configurer**) et renseigner :
    - URL Odoo, base de données, login API, clé API ;
    - la **date de début de synchro** (voir ci-dessous) ;
    - les **références des articles Odoo de frais de port et de remise** (voir « Montants et TVA ») ;
@@ -247,7 +247,7 @@ https://votre-boutique.example/modules/odoosalesync/cron.php?token=XXXXXXXX
 
 ## Journal / réessai manuel
 
-Modules > Synchronisation Odoo > **Journal** liste toutes les tentatives de synchro (succès/erreur, message d'erreur, IDs Odoo créés). Un bouton "Réessayer" permet de relancer une commande en échec, et un bouton en haut de la liste permet de réessayer toutes les commandes en erreur d'un coup.
+Le journal s'ouvre depuis l'écran de configuration du module, bouton **Ouvrir le journal de synchronisation** (les onglets créés par le module n'apparaissent pas dans le menu latéral de PrestaShop 9). Il liste toutes les tentatives de synchro (succès/erreur, message d'erreur, IDs Odoo créés). Un bouton "Réessayer" permet de relancer une commande en échec, et un bouton en haut de la liste permet de réessayer toutes les commandes en erreur d'un coup.
 
 ## Limites connues (v1)
 

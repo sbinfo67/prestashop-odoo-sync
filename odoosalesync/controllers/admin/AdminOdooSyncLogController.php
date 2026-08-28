@@ -41,6 +41,12 @@ class AdminOdooSyncLogController extends ModuleAdminController
 
         $this->addRowAction('retry');
 
+        $this->toolbar_btn['back_to_settings'] = [
+            'href' => $this->context->link->getAdminLink('AdminOdooSyncSettings'),
+            'desc' => $this->trans('Configuration du module', [], 'Modules.Odoosalesync.Admin'),
+            'icon' => 'process-icon-configure',
+        ];
+
         $this->toolbar_btn['retry_all_errors'] = [
             'href' => self::$currentIndex . '&retryAllErrors=1&token=' . $this->token,
             'desc' => $this->trans('Réessayer toutes les synchros en erreur', [], 'Modules.Odoosalesync.Admin'),
