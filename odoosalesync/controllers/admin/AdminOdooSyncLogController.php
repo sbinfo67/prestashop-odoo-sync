@@ -130,40 +130,39 @@ class AdminOdooSyncLogController extends ModuleAdminController
      * Le bouton équivalent de la barre d'outils est rendu par PrestaShop en simple icône,
      * sans libellé, parmi celles du panneau : personne ne le trouve.
      */
-    /**
-     * Les boutons de la barre d'outils sont construits ici et non dans le constructeur :
-     * self::$currentIndex y est encore vide, ce qui produisait des liens sans page cible
-     * (« &retryAllErrors=1&token=... ») aboutissant à une erreur 404.
-     */
-    public function initToolbar()
-    {
-        parent::initToolbar();
-
-        $this->toolbar_btn['backfill_names'] = [
-            'href' => self::$currentIndex . '&backfillNames=1&token=' . $this->token,
-            'desc' => $this->trans('Récupérer les numéros Odoo manquants', [], 'Modules.Odoosalesync.Admin'),
-            'icon' => 'process-icon-download',
-        ];
-
-        $this->toolbar_btn['retry_all_errors'] = [
-            'href' => self::$currentIndex . '&retryAllErrors=1&token=' . $this->token,
-            'desc' => $this->trans('Réessayer toutes les synchros en erreur', [], 'Modules.Odoosalesync.Admin'),
-            'icon' => 'process-icon-refresh',
-        ];
-    }
-
     public function initContent()
     {
         // Avant parent::initContent() : celui-ci ajoute la liste au contenu déjà présent,
         // puis le transmet au gabarit — après son appel, il serait trop tard.
-        $url = $this->context->link->getAdminLink('AdminOdooSyncSettings');
+        // Boutons libellés plutôt que des icônes de barre d'outils : PrestaShop y rend
+        // process-icon-* sans libellé, et une classe inexistante laisse un vide.
+        $base = self::$currentIndex ?: ('index.php?controller=' . $this->controller_name);
 
-        $this->content .= '<div class="panel"><a class="btn btn-default" href="' . htmlspecialchars($url) . '">'
-            . '<i class="icon-cogs"></i> '
-            . $this->trans('Configuration du module', [], 'Modules.Odoosalesync.Admin')
-            . '</a> <span class="help-block" style="display:inline-block;margin:0 0 0 10px">'
-            . $this->trans('Connexion Odoo, statuts déclencheurs, articles de port et de remise.', [], 'Modules.Odoosalesync.Admin')
-            . '</span></div>';
+        $actions = [
+            [
+                'url' => $this->context->link->getAdminLink('AdminOdooSyncSettings'),
+                'icon' => 'icon-cogs',
+                'label' => $this->trans('Configuration du module', [], 'Modules.Odoosalesync.Admin'),
+            ],
+            [
+                'url' => $base . '&backfillNames=1&token=' . $this->token,
+                'icon' => 'icon-download',
+                'label' => $this->trans('Récupérer les numéros Odoo manquants', [], 'Modules.Odoosalesync.Admin'),
+            ],
+            [
+                'url' => $base . '&retryAllErrors=1&token=' . $this->token,
+                'icon' => 'icon-refresh',
+                'label' => $this->trans('Réessayer toutes les synchros en erreur', [], 'Modules.Odoosalesync.Admin'),
+            ],
+        ];
+
+        $buttons = '';
+        foreach ($actions as $action) {
+            $buttons .= '<a class="btn btn-default" style="margin-right:8px" href="' . htmlspecialchars($action['url']) . '">'
+                . '<i class="' . $action['icon'] . '"></i> ' . $action['label'] . '</a>';
+        }
+
+        $this->content .= '<div class="panel">' . $buttons . '</div>';
 
         parent::initContent();
     }
@@ -348,6 +347,12 @@ class AdminOdooSyncLogController extends ModuleAdminController
     protected function retryOrders(array $idOrders)
     {
         if (empty($idOrders)) {
+            $this->confirmations[] = $this->trans(
+                'Aucune synchronisation en erreur à relancer.',
+                [],
+                'Modules.Odoosalesync.Admin'
+            );
+
             return;
         }
 

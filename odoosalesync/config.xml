@@ -2,7 +2,7 @@
 <module>
     <name>odoosalesync</name>
     <displayName><![CDATA[Synchronisation Odoo]]></displayName>
-    <version><![CDATA[1.7.6]]></version>
+    <version><![CDATA[1.7.7]]></version>
     <description><![CDATA[Crée automatiquement la commande et le client dans Odoo lorsqu'un paiement PrestaShop est validé.]]></description>
     <author><![CDATA[SBINFO]]></author>
     <tab><![CDATA[administration]]></tab>
