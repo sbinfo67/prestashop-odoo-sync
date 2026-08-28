@@ -43,6 +43,8 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
         Configuration::updateValue('ODOOSALESYNC_DB', trim((string) Tools::getValue('ODOOSALESYNC_DB')));
         Configuration::updateValue('ODOOSALESYNC_LOGIN', trim((string) Tools::getValue('ODOOSALESYNC_LOGIN')));
         Configuration::updateValue('ODOOSALESYNC_AUTOCONFIRM', (int) Tools::getValue('ODOOSALESYNC_AUTOCONFIRM'));
+        Configuration::updateValue('ODOOSALESYNC_SHIPPING_REF', trim((string) Tools::getValue('ODOOSALESYNC_SHIPPING_REF')));
+        Configuration::updateValue('ODOOSALESYNC_DISCOUNT_REF', trim((string) Tools::getValue('ODOOSALESYNC_DISCOUNT_REF')));
 
         // Saisie en JJ/MM/AAAA, stockage en ISO : c'est le seul format comparable en SQL.
         $startDate = trim((string) Tools::getValue('ODOOSALESYNC_START_DATE'));
@@ -182,6 +184,20 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
                         'class' => 'fixed-width-lg',
                     ],
                     [
+                        'type' => 'text',
+                        'label' => $this->trans('Référence Odoo de l\'article "frais de port"', [], 'Modules.Odoosalesync.Admin'),
+                        'name' => 'ODOOSALESYNC_SHIPPING_REF',
+                        'desc' => $this->trans('Référence interne (default_code) d\'un article de service Odoo servant à porter les frais de livraison. Sans cette référence, le port n\'est pas transmis et le total Odoo différera du montant encaissé.', [], 'Modules.Odoosalesync.Admin'),
+                        'class' => 'fixed-width-lg',
+                    ],
+                    [
+                        'type' => 'text',
+                        'label' => $this->trans('Référence Odoo de l\'article "remise"', [], 'Modules.Odoosalesync.Admin'),
+                        'name' => 'ODOOSALESYNC_DISCOUNT_REF',
+                        'desc' => $this->trans('Référence interne (default_code) d\'un article de service Odoo servant à porter les remises et bons de réduction, en montant négatif. Laisser vide si la boutique n\'en utilise pas.', [], 'Modules.Odoosalesync.Admin'),
+                        'class' => 'fixed-width-lg',
+                    ],
+                    [
                         'type' => 'switch',
                         'label' => $this->trans('Confirmer automatiquement la commande dans Odoo', [], 'Modules.Odoosalesync.Admin'),
                         'name' => 'ODOOSALESYNC_AUTOCONFIRM',
@@ -253,6 +269,8 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
                 OdooOrderSync::formatDateForDisplay(Configuration::get('ODOOSALESYNC_START_DATE'))
             ),
             'ODOOSALESYNC_AUTOCONFIRM' => (int) Configuration::get('ODOOSALESYNC_AUTOCONFIRM'),
+            'ODOOSALESYNC_SHIPPING_REF' => Tools::getValue('ODOOSALESYNC_SHIPPING_REF', Configuration::get('ODOOSALESYNC_SHIPPING_REF')),
+            'ODOOSALESYNC_DISCOUNT_REF' => Tools::getValue('ODOOSALESYNC_DISCOUNT_REF', Configuration::get('ODOOSALESYNC_DISCOUNT_REF')),
         ];
     }
 }

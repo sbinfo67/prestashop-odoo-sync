@@ -91,6 +91,7 @@ En effet, `with_user()` repasse l'environnement en mode non-privilégié (`su=Fa
 3. Aller dans Modules > **Synchronisation Odoo** (ou via le menu Administration créé par le module) et renseigner :
    - URL Odoo, base de données, login API, clé API ;
    - la **date de début de synchro** (voir ci-dessous) ;
+   - les **références des articles Odoo de frais de port et de remise** (voir « Montants et TVA ») ;
    - activer/désactiver la confirmation automatique de la commande dans Odoo.
 4. Cliquer sur **Tester la connexion** pour valider les identifiants avant d'enregistrer.
 
@@ -134,6 +135,43 @@ PrestaShop met en cache les informations des modules ; tant que le cache n'est p
 - Les scripts du dossier `upgrade/` (ex. `upgrade-1.1.0.php`) sont exécutés automatiquement par PrestaShop lors du passage à la version correspondante ; ils n'écrasent jamais un paramètre déjà renseigné.
 - La version est déclarée à deux endroits qui doivent rester cohérents : `$this->version` dans `odoosalesync.php` et `<version>` dans `config.xml`.
 - Après mise à jour, vérifier rapidement que la page de configuration s'ouvre et cliquer sur **Tester la connexion**.
+
+## Montants et TVA : le TTC PrestaShop fait foi
+
+Le montant qui compte est celui réellement encaissé par le prestataire de paiement (Stripe). Le module s'assure que la commande Odoo reproduit ce montant, et refuse de laisser passer un écart silencieux.
+
+**Ce qui est transmis à Odoo**
+
+| Élément | Source PrestaShop | Ligne Odoo |
+| --- | --- | --- |
+| Produits | prix unitaire HT + taux de TVA de la ligne | ligne article, taxe imposée explicitement |
+| Frais de port | `total_shipping_tax_excl` | article de service dédié (référence à configurer) |
+| Remises / bons | `total_discounts_tax_excl` | article de service dédié, en montant **négatif** |
+
+Pour chaque ligne, le taux de TVA appliqué par PrestaShop est recherché parmi les **taxes de vente Odoo** (`account.tax`, type « Ventes », en pourcentage). S'il existe, il est imposé sur la ligne : le calcul d'Odoo reproduit alors exactement celui de PrestaShop.
+
+**Contrôle du total**
+
+Après création, le module compare le `amount_total` d'Odoo au `total_paid_tax_incl` de PrestaShop, avec une tolérance d'un centime. En cas d'écart :
+
+- la commande Odoo **n'est pas confirmée** (elle reste en devis/brouillon) ;
+- la synchronisation passe en **erreur**, avec les deux montants et l'écart dans le journal ;
+- la commande Odoo est **conservée** et son identifiant enregistré : aucune tentative ultérieure n'en créera de doublon.
+
+**Que faire en cas d'écart**
+
+La cause la plus fréquente est un taux de TVA présent dans PrestaShop mais absent d'Odoo (par exemple 10 % ou 5,5 %), ou une référence d'article port/remise non configurée. Après correction dans Odoo, supprimez la commande en brouillon puis relancez la synchronisation : le module détecte sa disparition et la recrée proprement.
+
+> Le module ne « force » jamais le TTC en recalculant le prix HT à rebours. Le total correspondrait, mais la ventilation HT/TVA serait fausse — donc la déclaration de TVA également. L'écart est signalé pour être corrigé à la source, dans la configuration fiscale.
+
+**Articles de service à créer dans Odoo**
+
+Créez deux articles de type *service* et renseignez leurs références internes (`default_code`) dans la configuration du module :
+
+- un article pour les **frais de port** (ex. `SHIPPING`) ;
+- un article pour les **remises** (ex. `DISCOUNT`), si la boutique utilise des bons de réduction.
+
+Si la référence n'est pas renseignée, l'élément correspondant n'est pas transmis — le total Odoo sera alors inférieur au montant encaissé, et l'écart signalé.
 
 ## Lancer une synchronisation manuelle
 
@@ -182,7 +220,7 @@ Modules > Synchronisation Odoo > **Journal** liste toutes les tentatives de sync
 
 ## Limites connues (v1)
 
-- **Taxes** : le module envoie le prix unitaire HT de PrestaShop, mais ne mappe pas finement les taux de TVA PrestaShop vers Odoo — c'est la configuration fiscale du produit/du partenaire dans Odoo qui détermine la taxe appliquée à la ligne. À vérifier/adapter selon votre configuration comptable.
+- **Taxes sans équivalent Odoo** : si aucune taxe de vente Odoo ne correspond au taux d'une ligne, le module n'impose rien et laisse Odoo appliquer la fiscalité du produit. L'écart de TTC qui en découle est alors détecté et signalé (voir ci-dessous), mais il faut créer la taxe manquante dans Odoo pour le résoudre.
 - **Pas de création de produit à la volée** : si une référence produit PrestaShop n'existe pas dans Odoo (`default_code`), la synchro de la commande échoue proprement (visible dans le Journal) plutôt que de créer une commande partielle.
 - **Pas de synchronisation retour** : les annulations/remboursements faits dans PrestaShop ne sont pas répercutés automatiquement dans Odoo.
 - **Multi-boutique** : le hook s'exécute dans le contexte de la boutique de la commande, et le cron réinitialise le contexte (boutique/langue/devise) à partir de chaque commande traitée. Le mapping produit se fait par référence globale ; si vous gérez des références différentes par boutique, une adaptation peut être nécessaire.
@@ -200,7 +238,7 @@ Modules > Synchronisation Odoo > **Journal** liste toutes les tentatives de sync
 
 ## Note sur la vérification de ce module
 
-Le module a été testé sur une installation réelle **PrestaShop 9.1.4 + Odoo 19** (conteneurs jetables) : création de la commande et du client dans Odoo à la validation du paiement, réutilisation d'un client existant sans doublon, idempotence du hook, échec propre sans casser le tunnel de commande quand Odoo est injoignable ou qu'une référence produit manque, rattrapage par le cron, filtre de date de début, et rendu des deux écrans du back-office.
+Le module a été testé sur une installation réelle **PrestaShop 9.1.4 + Odoo 19** (conteneurs jetables) : création de la commande et du client dans Odoo à la validation du paiement, correspondance au centime des montants TTC (TVA 20 %, lignes de port et de remise), détection d'un écart quand un taux n'existe pas dans Odoo, absence de doublon après tentatives répétées, réutilisation d'un client existant sans doublon, idempotence du hook, échec propre sans casser le tunnel de commande quand Odoo est injoignable ou qu'une référence produit manque, rattrapage par le cron, filtre de date de début, et rendu des deux écrans du back-office.
 
 Ces tests portent sur **Odoo 19 Community** : les modèles utilisés (`res.partner`, `product.product`, `sale.order`) et l'API JSON-RPC sont identiques en Enterprise, mais un module Enterprise modifiant le flux de vente pourrait changer le comportement.
 

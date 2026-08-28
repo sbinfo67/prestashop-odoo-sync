@@ -17,6 +17,18 @@ class OdooOrderSync
     /** @var array<string,int|null> cache ISO country code => Odoo res.country id, pour la durée de la requête */
     private static $countryCache = [];
 
+    /** @var array<string,int|null> cache taux de TVA => Odoo account.tax id */
+    private static $taxCache = [];
+
+    /** Écart maximal toléré entre le TTC PrestaShop et le TTC Odoo, en devise de la commande. */
+    const AMOUNT_TOLERANCE = 0.01;
+
+    /** @var int|null identifiants créés lors de la tentative en cours, conservés en cas d'échec ultérieur */
+    private $lastOdooOrder = null;
+
+    /** @var int|null */
+    private $lastOdooPartner = null;
+
     public function __construct(OdooClient $client = null)
     {
         $this->client = $client ?: self::buildClientFromConfig();
@@ -50,6 +62,22 @@ class OdooOrderSync
             ];
         }
 
+        // Une tentative précédente peut avoir créé la commande dans Odoo puis échoué ensuite
+        // (confirmation, contrôle du TTC...). Sans ce garde-fou, le rattrapage en créerait une
+        // seconde. On ne recrée que si la commande a réellement disparu d'Odoo (suppression
+        // manuelle après correction).
+        if ($existing && (int) $existing['id_odoo_order'] > 0) {
+            $idExistingOdooOrder = (int) $existing['id_odoo_order'];
+
+            if ($this->odooOrderExists($idExistingOdooOrder)) {
+                return [
+                    'id_odoo_order' => $idExistingOdooOrder,
+                    'id_odoo_partner' => (int) $existing['id_odoo_partner'],
+                    'already_in_odoo' => true,
+                ];
+            }
+        }
+
         try {
             $result = $this->doSync($idOrder);
 
@@ -62,7 +90,9 @@ class OdooOrderSync
 
             return $result;
         } catch (Throwable $e) {
-            $this->saveSyncRow($idOrder, 'error', null, null, $e->getMessage());
+            // On conserve les identifiants déjà obtenus : si la commande a été créée dans Odoo
+            // avant l'échec, elle ne doit jamais être recréée par une tentative ultérieure.
+            $this->saveSyncRow($idOrder, 'error', $this->lastOdooOrder, $this->lastOdooPartner, $e->getMessage());
 
             PrestaShopLogger::addLog(
                 'Odoosalesync: échec de synchronisation de la commande #' . $idOrder . ' : ' . $e->getMessage(),
@@ -103,7 +133,10 @@ class OdooOrderSync
         }
 
         $idOdooPartner = $this->findOrCreatePartner($customer, $address);
+        $this->lastOdooPartner = $idOdooPartner;
+
         $orderLines = $this->buildOrderLines($products);
+        $orderLines = array_merge($orderLines, $this->buildShippingLines($order), $this->buildDiscountLines($order));
 
         $idOdooOrder = $this->client->create('sale.order', [
             'partner_id' => $idOdooPartner,
@@ -116,6 +149,13 @@ class OdooOrderSync
             throw new OdooOrderSyncException('Odoo n\'a pas renvoyé d\'identifiant pour la commande créée.');
         }
 
+        $this->lastOdooOrder = $idOdooOrder;
+
+        // Contrôle du montant TTC : c'est le montant réellement encaissé (Stripe) qui fait foi.
+        // Un écart signifie que la fiscalité Odoo ne reproduit pas celle de PrestaShop : on ne
+        // confirme pas la commande et on remonte l'écart, mais on la conserve dans Odoo.
+        $this->assertTotalMatches($order, $idOdooOrder);
+
         if (Configuration::get('ODOOSALESYNC_AUTOCONFIRM')) {
             $this->client->executeKw('sale.order', 'action_confirm', [[$idOdooOrder]]);
         }
@@ -124,6 +164,182 @@ class OdooOrderSync
             'id_odoo_order' => $idOdooOrder,
             'id_odoo_partner' => $idOdooPartner,
         ];
+    }
+
+    /**
+     * Compare le TTC calculé par Odoo au montant payé dans PrestaShop.
+     * Lève une exception si l'écart dépasse la tolérance : la commande reste créée dans Odoo
+     * (et non confirmée), l'écart est visible dans le journal de synchronisation.
+     */
+    private function assertTotalMatches(Order $order, $idOdooOrder)
+    {
+        $rows = $this->client->searchRead('sale.order', [['id', '=', (int) $idOdooOrder]], ['amount_total'], 1);
+
+        if (empty($rows)) {
+            return;
+        }
+
+        $odooTotal = (float) $rows[0]['amount_total'];
+        $shopTotal = (float) $order->total_paid_tax_incl;
+        $delta = round($odooTotal - $shopTotal, 2);
+
+        if (abs($delta) > self::AMOUNT_TOLERANCE) {
+            throw new OdooOrderSyncException(sprintf(
+                'Écart de montant TTC : PrestaShop %.2f, Odoo %.2f (écart %+.2f). '
+                . 'La commande Odoo #%d a été créée mais non confirmée : vérifiez les taux de TVA '
+                . 'et les articles de port/remise côté Odoo.',
+                $shopTotal,
+                $odooTotal,
+                $delta,
+                (int) $idOdooOrder
+            ));
+        }
+    }
+
+    /**
+     * Ligne de frais de port. L'article de service Odoo est désigné par sa référence,
+     * paramétrable dans le module ; si elle n'est pas renseignée, le port n'est pas transmis
+     * (l'écart de TTC qui en résulte sera signalé par le contrôle des montants).
+     */
+    private function buildShippingLines(Order $order)
+    {
+        $shippingExcl = (float) $order->total_shipping_tax_excl;
+
+        if (round($shippingExcl, 2) <= 0) {
+            return [];
+        }
+
+        $reference = trim((string) Configuration::get('ODOOSALESYNC_SHIPPING_REF'));
+
+        if ($reference === '') {
+            return [];
+        }
+
+        $idOdooProduct = $this->findProductByReference($reference);
+
+        if (!$idOdooProduct) {
+            throw new OdooOrderSyncException(
+                'Article de frais de port introuvable dans Odoo pour la référence "' . $reference . '".'
+            );
+        }
+
+        return [[0, 0, array_merge(
+            [
+                'product_id' => $idOdooProduct,
+                'name' => 'Frais de port',
+                'product_uom_qty' => 1,
+                'price_unit' => $shippingExcl,
+            ],
+            $this->taxValues($this->effectiveRate($shippingExcl, (float) $order->total_shipping_tax_incl))
+        )]];
+    }
+
+    /**
+     * Ligne de remise, en négatif. Même principe que le port pour l'article Odoo utilisé.
+     */
+    private function buildDiscountLines(Order $order)
+    {
+        $discountExcl = (float) $order->total_discounts_tax_excl;
+
+        if (round($discountExcl, 2) <= 0) {
+            return [];
+        }
+
+        $reference = trim((string) Configuration::get('ODOOSALESYNC_DISCOUNT_REF'));
+
+        if ($reference === '') {
+            return [];
+        }
+
+        $idOdooProduct = $this->findProductByReference($reference);
+
+        if (!$idOdooProduct) {
+            throw new OdooOrderSyncException(
+                'Article de remise introuvable dans Odoo pour la référence "' . $reference . '".'
+            );
+        }
+
+        return [[0, 0, array_merge(
+            [
+                'product_id' => $idOdooProduct,
+                'name' => 'Remise',
+                'product_uom_qty' => 1,
+                'price_unit' => -$discountExcl,
+            ],
+            $this->taxValues($this->effectiveRate($discountExcl, (float) $order->total_discounts_tax_incl))
+        )]];
+    }
+
+    /**
+     * Taux de TVA effectif déduit d'un couple HT/TTC, en pourcentage.
+     */
+    private function effectiveRate($excl, $incl)
+    {
+        if ($excl <= 0) {
+            return 0.0;
+        }
+
+        return round((($incl / $excl) - 1) * 100, 3);
+    }
+
+    /**
+     * Valeurs de taxe à poser sur une ligne de commande Odoo.
+     * Si aucune taxe Odoo ne correspond au taux, on n'impose rien : Odoo applique la fiscalité
+     * du produit, et l'éventuel écart est détecté par le contrôle du TTC.
+     */
+    private function taxValues($rate)
+    {
+        $idTax = $this->findTaxByRate($rate);
+
+        // Odoo 19 : le champ s'appelle tax_ids sur sale.order.line (tax_id dans les versions
+        // antérieures) — un mauvais nom déclenche "Invalid field ... on model sale.order.line".
+        return $idTax ? ['tax_ids' => [[6, 0, [$idTax]]]] : [];
+    }
+
+    /**
+     * Recherche une taxe de vente Odoo au pourcentage donné.
+     */
+    private function findTaxByRate($rate)
+    {
+        $rate = round((float) $rate, 3);
+
+        if ($rate <= 0) {
+            return null;
+        }
+
+        $key = (string) $rate;
+
+        if (array_key_exists($key, self::$taxCache)) {
+            return self::$taxCache[$key];
+        }
+
+        // Comparaison bornée : les taux sont des flottants des deux côtés.
+        $result = $this->client->searchRead('account.tax', [
+            ['type_tax_use', '=', 'sale'],
+            ['amount_type', '=', 'percent'],
+            ['amount', '>=', $rate - 0.001],
+            ['amount', '<=', $rate + 0.001],
+        ], ['id'], 1);
+
+        $idTax = !empty($result) ? (int) $result[0]['id'] : null;
+        self::$taxCache[$key] = $idTax;
+
+        return $idTax;
+    }
+
+    /**
+     * Vérifie qu'une commande existe toujours dans Odoo (elle a pu être supprimée manuellement).
+     */
+    private function odooOrderExists($idOdooOrder)
+    {
+        try {
+            $rows = $this->client->searchRead('sale.order', [['id', '=', (int) $idOdooOrder]], ['id'], 1);
+
+            return !empty($rows);
+        } catch (Throwable $e) {
+            // Odoo injoignable : on suppose la commande présente plutôt que risquer un doublon.
+            return true;
+        }
     }
 
     private function buildOrderLines(array $products)
@@ -145,12 +361,21 @@ class OdooOrderSync
                 throw new OdooOrderSyncException('Aucun produit Odoo trouvé pour la référence "' . $reference . '".');
             }
 
-            $orderLines[] = [0, 0, [
-                'product_id' => $idOdooProduct,
-                'name' => $product['product_name'],
-                'product_uom_qty' => (float) $product['product_quantity'],
-                'price_unit' => (float) $product['unit_price_tax_excl'],
-            ]];
+            // tax_rate est le taux réellement appliqué par PrestaShop sur la ligne. On le
+            // reporte sur la taxe Odoo correspondante pour que le TTC coïncide avec l'encaissement.
+            $rate = isset($product['tax_rate'])
+                ? (float) $product['tax_rate']
+                : $this->effectiveRate((float) $product['unit_price_tax_excl'], (float) $product['unit_price_tax_incl']);
+
+            $orderLines[] = [0, 0, array_merge(
+                [
+                    'product_id' => $idOdooProduct,
+                    'name' => $product['product_name'],
+                    'product_uom_qty' => (float) $product['product_quantity'],
+                    'price_unit' => (float) $product['unit_price_tax_excl'],
+                ],
+                $this->taxValues($rate)
+            )];
         }
 
         return $orderLines;
