@@ -79,17 +79,6 @@ class AdminOdooSyncLogController extends ModuleAdminController
             ],
         ];
 
-        $this->toolbar_btn['back_to_settings'] = [
-            'href' => $this->context->link->getAdminLink('AdminOdooSyncSettings'),
-            'desc' => $this->trans('Configuration du module', [], 'Modules.Odoosalesync.Admin'),
-            'icon' => 'process-icon-configure',
-        ];
-
-        $this->toolbar_btn['retry_all_errors'] = [
-            'href' => self::$currentIndex . '&retryAllErrors=1&token=' . $this->token,
-            'desc' => $this->trans('Réessayer toutes les synchros en erreur', [], 'Modules.Odoosalesync.Admin'),
-            'icon' => 'process-icon-refresh',
-        ];
     }
 
     /**
@@ -141,6 +130,28 @@ class AdminOdooSyncLogController extends ModuleAdminController
      * Le bouton équivalent de la barre d'outils est rendu par PrestaShop en simple icône,
      * sans libellé, parmi celles du panneau : personne ne le trouve.
      */
+    /**
+     * Les boutons de la barre d'outils sont construits ici et non dans le constructeur :
+     * self::$currentIndex y est encore vide, ce qui produisait des liens sans page cible
+     * (« &retryAllErrors=1&token=... ») aboutissant à une erreur 404.
+     */
+    public function initToolbar()
+    {
+        parent::initToolbar();
+
+        $this->toolbar_btn['backfill_names'] = [
+            'href' => self::$currentIndex . '&backfillNames=1&token=' . $this->token,
+            'desc' => $this->trans('Récupérer les numéros Odoo manquants', [], 'Modules.Odoosalesync.Admin'),
+            'icon' => 'process-icon-download',
+        ];
+
+        $this->toolbar_btn['retry_all_errors'] = [
+            'href' => self::$currentIndex . '&retryAllErrors=1&token=' . $this->token,
+            'desc' => $this->trans('Réessayer toutes les synchros en erreur', [], 'Modules.Odoosalesync.Admin'),
+            'icon' => 'process-icon-refresh',
+        ];
+    }
+
     public function initContent()
     {
         // Avant parent::initContent() : celui-ci ajoute la liste au contenu déjà présent,
@@ -268,6 +279,8 @@ class AdminOdooSyncLogController extends ModuleAdminController
             } else {
                 $this->errors[] = $this->trans('Ligne de journal introuvable.', [], 'Modules.Odoosalesync.Admin');
             }
+        } elseif (Tools::isSubmit('backfillNames')) {
+            $this->backfillNames();
         } elseif (Tools::isSubmit('retryAllErrors')) {
             $rows = Db::getInstance()->executeS(
                 'SELECT id_order FROM `' . _DB_PREFIX_ . 'odoosync_order` WHERE status = "error"'
@@ -301,6 +314,35 @@ class AdminOdooSyncLogController extends ModuleAdminController
         $this->retryOrders(array_map('intval', array_column($rows ?: [], 'id_order')));
 
         return true;
+    }
+
+    /**
+     * Remplace les identifiants techniques affichés par les vrais numéros Odoo.
+     */
+    protected function backfillNames()
+    {
+        try {
+            $filled = (new OdooOrderSync())->backfillNames();
+        } catch (Throwable $e) {
+            $this->errors[] = sprintf($this->trans('Odoo est injoignable : %s', [], 'Modules.Odoosalesync.Admin'), $e->getMessage());
+
+            return;
+        }
+
+        $total = array_sum($filled);
+
+        if (!$total) {
+            $this->confirmations[] = $this->trans('Aucun numéro à récupérer : le journal est déjà à jour.', [], 'Modules.Odoosalesync.Admin');
+
+            return;
+        }
+
+        $this->confirmations[] = sprintf(
+            $this->trans('Numéros récupérés : %d commande(s), %d bon(s) de livraison, %d facture(s).', [], 'Modules.Odoosalesync.Admin'),
+            $filled['order'],
+            $filled['picking'],
+            $filled['invoice']
+        );
     }
 
     protected function retryOrders(array $idOrders)

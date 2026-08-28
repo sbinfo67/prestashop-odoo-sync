@@ -1162,6 +1162,63 @@ class OdooOrderSync
     }
 
     /**
+     * Renseigne les numéros Odoo manquants dans le journal (commande, BL, facture).
+     *
+     * Les lignes anciennes, ou celles rattachées à un document existant sans que son numéro
+     * ait été relu, n'affichent qu'un identifiant technique — inutilisable pour retrouver la
+     * pièce dans Odoo. On va chercher les numéros par lots.
+     *
+     * @return array<string,int> nombre de numéros récupérés par type
+     */
+    public function backfillNames()
+    {
+        $models = [
+            'order' => 'sale.order',
+            'picking' => 'stock.picking',
+            'invoice' => 'account.move',
+        ];
+
+        $filled = [];
+
+        foreach ($models as $step => $model) {
+            $idColumn = $step === 'order' ? 'id_odoo_order' : 'id_odoo_' . $step;
+            $nameColumn = $step === 'order' ? 'odoo_order_name' : 'odoo_' . $step . '_name';
+
+            $rows = Db::getInstance()->executeS(
+                'SELECT DISTINCT `' . $idColumn . '` AS id_record
+                 FROM `' . _DB_PREFIX_ . 'odoosync_order`
+                 WHERE `' . $idColumn . '` > 0
+                   AND (`' . $nameColumn . '` IS NULL OR `' . $nameColumn . '` = "" OR `' . $nameColumn . '` = "/")'
+            );
+
+            $ids = array_map('intval', array_column($rows ?: [], 'id_record'));
+            $filled[$step] = 0;
+
+            if (empty($ids)) {
+                continue;
+            }
+
+            foreach ($this->client->searchRead($model, [['id', 'in', $ids]], ['id', 'name']) as $record) {
+                $name = (string) $record['name'];
+
+                // Une pièce non validée n'a pas encore de numéro dans Odoo (name vaut « / »).
+                if ($name === '' || $name === '/') {
+                    continue;
+                }
+
+                Db::getInstance()->update(
+                    'odoosync_order',
+                    [$nameColumn => pSQL($name)],
+                    '`' . $idColumn . '` = ' . (int) $record['id']
+                );
+                $filled[$step]++;
+            }
+        }
+
+        return $filled;
+    }
+
+    /**
      * Condition retenant aussi les commandes déjà synchronisées dont il reste une étape à faire.
      *
      * Sans cela, une commande passée en succès avant l'activation de la livraison et de la
