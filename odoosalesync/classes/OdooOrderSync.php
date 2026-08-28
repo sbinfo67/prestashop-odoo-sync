@@ -20,6 +20,12 @@ class OdooOrderSync
     /** @var array<string,int|null> cache taux de TVA => Odoo account.tax id */
     private static $taxCache = [];
 
+    /** @var array<int,array> cache identifiant de taxe => caractéristiques (taux, type) */
+    private static $taxDetailCache = [];
+
+    /** @var array<string,array|null> cache référence => article Odoo et ses taxes */
+    private static $productCache = [];
+
     /** Écart maximal toléré entre le TTC PrestaShop et le TTC Odoo, en devise de la commande. */
     const AMOUNT_TOLERANCE = 0.01;
 
@@ -215,9 +221,9 @@ class OdooOrderSync
             return [];
         }
 
-        $idOdooProduct = $this->findProductByReference($reference);
+        $odooProduct = $this->findProductDataByReference($reference);
 
-        if (!$idOdooProduct) {
+        if (!$odooProduct) {
             throw new OdooOrderSyncException(
                 'Article de frais de port introuvable dans Odoo pour la référence "' . $reference . '".'
             );
@@ -225,12 +231,12 @@ class OdooOrderSync
 
         return [[0, 0, array_merge(
             [
-                'product_id' => $idOdooProduct,
+                'product_id' => $odooProduct['id'],
                 'name' => 'Frais de port',
                 'product_uom_qty' => 1,
                 'price_unit' => $shippingExcl,
             ],
-            $this->taxValues($this->effectiveRate($shippingExcl, (float) $order->total_shipping_tax_incl))
+            $this->taxValues($this->effectiveRate($shippingExcl, (float) $order->total_shipping_tax_incl), $odooProduct['taxes'])
         )]];
     }
 
@@ -251,9 +257,9 @@ class OdooOrderSync
             return [];
         }
 
-        $idOdooProduct = $this->findProductByReference($reference);
+        $odooProduct = $this->findProductDataByReference($reference);
 
-        if (!$idOdooProduct) {
+        if (!$odooProduct) {
             throw new OdooOrderSyncException(
                 'Article de remise introuvable dans Odoo pour la référence "' . $reference . '".'
             );
@@ -261,12 +267,12 @@ class OdooOrderSync
 
         return [[0, 0, array_merge(
             [
-                'product_id' => $idOdooProduct,
+                'product_id' => $odooProduct['id'],
                 'name' => 'Remise',
                 'product_uom_qty' => 1,
                 'price_unit' => -$discountExcl,
             ],
-            $this->taxValues($this->effectiveRate($discountExcl, (float) $order->total_discounts_tax_incl))
+            $this->taxValues($this->effectiveRate($discountExcl, (float) $order->total_discounts_tax_incl), $odooProduct['taxes'])
         )]];
     }
 
@@ -287,9 +293,9 @@ class OdooOrderSync
      * Si aucune taxe Odoo ne correspond au taux, on n'impose rien : Odoo applique la fiscalité
      * du produit, et l'éventuel écart est détecté par le contrôle du TTC.
      */
-    private function taxValues($rate)
+    private function taxValues($rate, array $productTaxIds = [])
     {
-        $idTax = $this->findTaxByRate($rate);
+        $idTax = $this->resolveTax($rate, $productTaxIds);
 
         // Odoo 19 : le champ s'appelle tax_ids sur sale.order.line (tax_id dans les versions
         // antérieures) — un mauvais nom déclenche "Invalid field ... on model sale.order.line".
@@ -297,7 +303,81 @@ class OdooOrderSync
     }
 
     /**
-     * Recherche une taxe de vente Odoo au pourcentage donné.
+     * Taxe à appliquer sur une ligne, par ordre de préférence :
+     *
+     * 1. une taxe déjà configurée sur l'article Odoo dont le taux correspond — c'est la bonne
+     *    au sens comptable (compte de TVA, distinction biens/services faite par le comptable) ;
+     * 2. à défaut, n'importe quelle taxe de vente Odoo au bon taux, pour que le TTC reste juste ;
+     * 3. si aucune ne correspond, on n'impose rien : Odoo applique la fiscalité de l'article et
+     *    l'écart éventuel est signalé par le contrôle des montants.
+     *
+     * @param array $productTaxIds identifiants des taxes de vente de l'article Odoo
+     */
+    private function resolveTax($rate, array $productTaxIds)
+    {
+        $rate = round((float) $rate, 3);
+
+        if ($rate <= 0) {
+            return null;
+        }
+
+        $idTax = $this->findTaxAmongProductTaxes($rate, $productTaxIds);
+
+        return $idTax ?: $this->findTaxByRate($rate);
+    }
+
+    /**
+     * Cherche, parmi les taxes portées par l'article Odoo, celle dont le taux correspond.
+     */
+    private function findTaxAmongProductTaxes($rate, array $productTaxIds)
+    {
+        if (empty($productTaxIds)) {
+            return null;
+        }
+
+        foreach ($this->readTaxes($productTaxIds) as $tax) {
+            if ($tax['amount_type'] !== 'percent' || $tax['type_tax_use'] !== 'sale') {
+                continue;
+            }
+
+            if (abs((float) $tax['amount'] - $rate) <= 0.001) {
+                return (int) $tax['id'];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Lit les caractéristiques de taxes Odoo, avec cache par identifiant.
+     */
+    private function readTaxes(array $ids)
+    {
+        $ids = array_map('intval', $ids);
+        $missing = array_values(array_diff($ids, array_keys(self::$taxDetailCache)));
+
+        if ($missing) {
+            foreach ($this->client->searchRead(
+                'account.tax',
+                [['id', 'in', $missing]],
+                ['id', 'amount', 'amount_type', 'type_tax_use']
+            ) as $tax) {
+                self::$taxDetailCache[(int) $tax['id']] = $tax;
+            }
+        }
+
+        $out = [];
+        foreach ($ids as $id) {
+            if (isset(self::$taxDetailCache[$id])) {
+                $out[] = self::$taxDetailCache[$id];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Recherche une taxe de vente Odoo au pourcentage donné, sans considération d'article.
      */
     private function findTaxByRate($rate)
     {
@@ -355,11 +435,13 @@ class OdooOrderSync
                 );
             }
 
-            $idOdooProduct = $this->findProductByReference($reference);
+            $odooProduct = $this->findProductDataByReference($reference);
 
-            if (!$idOdooProduct) {
+            if (!$odooProduct) {
                 throw new OdooOrderSyncException('Aucun produit Odoo trouvé pour la référence "' . $reference . '".');
             }
+
+            $idOdooProduct = $odooProduct['id'];
 
             // tax_rate est le taux réellement appliqué par PrestaShop sur la ligne. On le
             // reporte sur la taxe Odoo correspondante pour que le TTC coïncide avec l'encaissement.
@@ -374,7 +456,7 @@ class OdooOrderSync
                     'product_uom_qty' => (float) $product['product_quantity'],
                     'price_unit' => (float) $product['unit_price_tax_excl'],
                 ],
-                $this->taxValues($rate)
+                $this->taxValues($rate, $odooProduct['taxes'])
             )];
         }
 
@@ -458,9 +540,41 @@ class OdooOrderSync
 
     private function findProductByReference($reference)
     {
-        $result = $this->client->searchRead('product.product', [['default_code', '=', $reference]], ['id'], 1);
+        $product = $this->findProductDataByReference($reference);
 
-        return !empty($result) ? (int) $result[0]['id'] : null;
+        return $product ? $product['id'] : null;
+    }
+
+    /**
+     * Article Odoo et ses taxes de vente configurées, pour pouvoir choisir la taxe correcte
+     * plutôt que la première du bon taux.
+     *
+     * @return array{id:int,taxes:int[]}|null
+     */
+    private function findProductDataByReference($reference)
+    {
+        if (array_key_exists($reference, self::$productCache)) {
+            return self::$productCache[$reference];
+        }
+
+        $result = $this->client->searchRead(
+            'product.product',
+            [['default_code', '=', $reference]],
+            ['id', 'taxes_id'],
+            1
+        );
+
+        $product = null;
+        if (!empty($result)) {
+            $product = [
+                'id' => (int) $result[0]['id'],
+                'taxes' => array_map('intval', (array) ($result[0]['taxes_id'] ?? [])),
+            ];
+        }
+
+        self::$productCache[$reference] = $product;
+
+        return $product;
     }
 
     public function getSyncRow($idOrder)
