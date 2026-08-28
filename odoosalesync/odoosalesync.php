@@ -12,7 +12,7 @@ class Odoosalesync extends Module
     {
         $this->name = 'odoosalesync';
         $this->tab = 'administration';
-        $this->version = '1.9.1';
+        $this->version = '1.9.2';
         $this->author = 'SBINFO';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -219,20 +219,23 @@ class Odoosalesync extends Module
 
         if ($status === 'error' || in_array('error', $steps, true)) {
             $label = $this->l('Erreur de synchronisation Odoo — voir le journal');
-            $icon = 'icon-warning-sign';
+            $icon = 'warning';
             $color = '#c62828';
         } elseif (in_array('success', $steps, true)) {
             $label = $this->l('Synchronisée dans Odoo (livraison et/ou facture traitées)');
-            $icon = 'icon-check-circle';
+            $icon = 'check_circle';
             $color = '#2e7d32';
         } else {
             $label = $this->l('Commande synchronisée dans Odoo');
-            $icon = 'icon-check';
+            $icon = 'check';
             $color = '#2e7d32';
         }
 
+        // Les pages Symfony du back-office utilisent les icônes Material, pas les classes
+        // « icon-* » de l'ancien thème : celles-ci ne dessinent rien sur cette liste.
         return '<a href="' . htmlspecialchars($journalUrl) . '" title="' . htmlspecialchars($label) . '"'
-            . ' style="color:' . $color . '"><i class="' . $icon . '"></i></a>';
+            . ' style="color:' . $color . '"><i class="material-icons" style="font-size:20px;vertical-align:middle">'
+            . $icon . '</i></a>';
     }
 
     /**
