@@ -25,7 +25,11 @@ class AdminOdooSyncLogController extends ModuleAdminController
         // et $this->trans() échouerait sur "Call to a member function trans() on null".
         $this->fields_list = [
             'id_odoosync_order' => ['title' => $this->trans('ID', [], 'Modules.Odoosalesync.Admin'), 'align' => 'center'],
-            'id_order' => ['title' => $this->trans('Commande PrestaShop', [], 'Modules.Odoosalesync.Admin'), 'align' => 'center'],
+            'id_order' => [
+                'title' => $this->trans('Commande PrestaShop', [], 'Modules.Odoosalesync.Admin'),
+                'align' => 'center',
+                'callback' => 'displayPrestaShopOrder',
+            ],
             'odoo_order_name' => [
                 'title' => $this->trans('Commande Odoo', [], 'Modules.Odoosalesync.Admin'),
                 'align' => 'center',
@@ -33,7 +37,11 @@ class AdminOdooSyncLogController extends ModuleAdminController
                 'search' => false,
                 'orderby' => false,
             ],
-            'id_odoo_partner' => ['title' => $this->trans('Client Odoo', [], 'Modules.Odoosalesync.Admin'), 'align' => 'center'],
+            'id_odoo_partner' => [
+                'title' => $this->trans('Client Odoo', [], 'Modules.Odoosalesync.Admin'),
+                'align' => 'center',
+                'callback' => 'displayOdooPartner',
+            ],
             'status' => [
                 'title' => $this->trans('Statut', [], 'Modules.Odoosalesync.Admin'),
                 'align' => 'center',
@@ -61,18 +69,87 @@ class AdminOdooSyncLogController extends ModuleAdminController
     }
 
     /**
+     * Lien vers la fiche de la commande dans PrestaShop.
+     */
+    public function displayPrestaShopOrder($idOrder, $row)
+    {
+        $idOrder = (int) $idOrder;
+
+        if (!$idOrder) {
+            return '-';
+        }
+
+        // La route doit être nommée explicitement : sans elle, getAdminLink renvoie vers la
+        // liste des commandes avec l'identifiant en paramètre, et non vers la fiche.
+        $url = $this->context->link->getAdminLink(
+            'AdminOrders',
+            true,
+            ['route' => 'admin_orders_view', 'orderId' => $idOrder]
+        );
+
+        return '<a href="' . htmlspecialchars($url) . '">' . $idOrder . '</a>';
+    }
+
+    /**
+     * Lien vers la commande dans Odoo.
+     *
+     * On passe par /mail/view : Odoo y résout lui-même le bon format d'URL selon sa version
+     * (en 19, il redirige vers /odoo/<modèle>/<id>), ce qui évite de coder en dur un format
+     * susceptible de changer.
+     *
+     * L'URL utilisée est celle configurée dans le module : elle doit donc être joignable
+     * depuis le navigateur, et pas seulement depuis le serveur PrestaShop.
+     */
+    protected function odooUrl($model, $idRecord)
+    {
+        $base = rtrim(preg_replace('#/jsonrpc/*$#i', '', rtrim(trim((string) Configuration::get('ODOOSALESYNC_URL')), '/')), '/');
+
+        if ($base === '' || !$idRecord) {
+            return null;
+        }
+
+        return $base . '/mail/view?model=' . urlencode($model) . '&res_id=' . (int) $idRecord;
+    }
+
+    /**
+     * Lien vers la fiche client dans Odoo.
+     */
+    public function displayOdooPartner($idPartner, $row)
+    {
+        $idPartner = (int) $idPartner;
+
+        if (!$idPartner) {
+            return '-';
+        }
+
+        $url = $this->odooUrl('res.partner', $idPartner);
+
+        return $url
+            ? '<a href="' . htmlspecialchars($url) . '" target="_blank" rel="noopener">' . $idPartner . '</a>'
+            : (string) $idPartner;
+    }
+
+    /**
      * Affiche le numéro de commande Odoo (ex. S00513), seul identifiant recherchable dans Odoo.
      * Les lignes créées avant la 1.3.5 n'ont pas ce numéro : on retombe sur l'identifiant technique.
      */
     public function displayOdooOrder($name, $row)
     {
-        if (!empty($name)) {
-            return $name;
+        $idOdooOrder = (int) ($row['id_odoo_order'] ?? 0);
+
+        if (!$idOdooOrder) {
+            return '-';
         }
 
-        return !empty($row['id_odoo_order'])
-            ? sprintf($this->trans('id %d', [], 'Modules.Odoosalesync.Admin'), (int) $row['id_odoo_order'])
-            : '-';
+        $label = !empty($name)
+            ? $name
+            : sprintf($this->trans('id %d', [], 'Modules.Odoosalesync.Admin'), $idOdooOrder);
+
+        $url = $this->odooUrl('sale.order', $idOdooOrder);
+
+        return $url
+            ? '<a href="' . htmlspecialchars($url) . '" target="_blank" rel="noopener">' . htmlspecialchars($label) . '</a>'
+            : htmlspecialchars($label);
     }
 
     /**

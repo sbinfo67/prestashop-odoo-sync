@@ -272,6 +272,10 @@ https://votre-boutique.example/modules/odoosalesync/cron.php?token=XXXXXXXX
 
 Le journal s'ouvre depuis l'écran de configuration du module, bouton **Ouvrir le journal de synchronisation** (les onglets créés par le module n'apparaissent pas dans le menu latéral de PrestaShop 9). Il liste toutes les tentatives de synchro (succès/erreur, message d'erreur, commande et client Odoo créés).
 
+Les colonnes **Commande PrestaShop**, **Commande Odoo** et **Client Odoo** sont cliquables et ouvrent directement la fiche correspondante dans le logiciel concerné. Les liens vers Odoo passent par sa route `/mail/view`, qui laisse Odoo déterminer lui-même le format d'URL adapté à sa version.
+
+> Ces liens utilisent l'**URL Odoo configurée dans le module**. Elle doit donc être joignable depuis le navigateur de l'administrateur, et pas seulement depuis le serveur PrestaShop — une adresse interne (`http://odoo:8069`) produirait des liens inutilisables.
+
 La colonne **Commande Odoo** affiche le numéro tel qu'il apparaît dans Odoo (ex. `S00513`), et non l'identifiant technique de la base — ce dernier ne permet pas de retrouver la commande depuis l'interface d'Odoo. Les lignes antérieures à la version 1.3.5 n'ont pas ce numéro et affichent `id 513` ; elles restent retrouvables dans Odoo en cherchant la **référence client**, où le module inscrit la référence de la commande PrestaShop. Un bouton "Réessayer" permet de relancer une commande en échec, et un bouton en haut de la liste permet de réessayer toutes les commandes en erreur d'un coup.
 
 ## Limites connues (v1)
