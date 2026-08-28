@@ -87,19 +87,11 @@ class OdooOrderSync
         }
 
         // Une tentative précédente peut avoir créé la commande dans Odoo puis échoué ensuite
-        // (confirmation, contrôle du TTC...). Sans ce garde-fou, le rattrapage en créerait une
-        // seconde. On ne recrée que si la commande a réellement disparu d'Odoo (suppression
-        // manuelle après correction).
+        // (contrôle du TTC, confirmation...). Cette commande est incomplète ou fausse : on la
+        // supprime pour la reconstruire, sinon le réessai ne corrigerait rien tout en annonçant
+        // un succès. La suppression est strictement encadrée (voir discardFailedOdooOrder).
         if ($existing && (int) $existing['id_odoo_order'] > 0) {
-            $idExistingOdooOrder = (int) $existing['id_odoo_order'];
-
-            if ($this->odooOrderExists($idExistingOdooOrder)) {
-                return [
-                    'id_odoo_order' => $idExistingOdooOrder,
-                    'id_odoo_partner' => (int) $existing['id_odoo_partner'],
-                    'already_in_odoo' => true,
-                ];
-            }
+            $this->discardFailedOdooOrder((int) $existing['id_odoo_order'], new Order($idOrder));
         }
 
         try {
@@ -464,18 +456,57 @@ class OdooOrderSync
     }
 
     /**
-     * Vérifie qu'une commande existe toujours dans Odoo (elle a pu être supprimée manuellement).
+     * Supprime la commande Odoo issue d'une tentative en échec, pour permettre sa reconstruction.
+     *
+     * Trois garde-fous avant toute suppression :
+     * - Odoo doit répondre (sinon on interrompt, plutôt que de risquer un doublon) ;
+     * - la commande doit porter la référence de la commande PrestaShop traitée (c'est bien la nôtre) ;
+     * - elle ne doit pas être confirmée : une commande validée a des implications comptables et
+     *   n'est jamais supprimée automatiquement.
      */
-    private function odooOrderExists($idOdooOrder)
+    private function discardFailedOdooOrder($idOdooOrder, Order $order)
     {
         try {
-            $rows = $this->client->searchRead('sale.order', [['id', '=', (int) $idOdooOrder]], ['id'], 1);
-
-            return !empty($rows);
+            $rows = $this->client->searchRead(
+                'sale.order',
+                [['id', '=', (int) $idOdooOrder]],
+                ['id', 'state', 'client_order_ref'],
+                1
+            );
         } catch (Throwable $e) {
-            // Odoo injoignable : on suppose la commande présente plutôt que risquer un doublon.
-            return true;
+            throw new OdooOrderSyncException(
+                'Odoo est injoignable, impossible de vérifier la commande #' . (int) $idOdooOrder
+                . ' déjà créée : ' . $e->getMessage()
+            );
         }
+
+        // Déjà supprimée manuellement : il n'y a rien à écarter, la reconstruction peut avoir lieu.
+        if (empty($rows)) {
+            return;
+        }
+
+        $odooOrder = $rows[0];
+
+        if ((string) $odooOrder['client_order_ref'] !== (string) $order->reference) {
+            throw new OdooOrderSyncException(sprintf(
+                'La commande Odoo #%d porte la référence « %s » et non « %s » : elle ne sera pas '
+                . 'supprimée. Vérifiez le journal, puis corrigez ou supprimez cette commande dans Odoo.',
+                (int) $idOdooOrder,
+                (string) $odooOrder['client_order_ref'],
+                (string) $order->reference
+            ));
+        }
+
+        if (!in_array($odooOrder['state'], ['draft', 'sent'], true)) {
+            throw new OdooOrderSyncException(sprintf(
+                'La commande Odoo #%d est déjà confirmée (état « %s ») : elle n\'est pas modifiée '
+                . 'automatiquement. Corrigez-la ou annulez-la dans Odoo, puis relancez la synchronisation.',
+                (int) $idOdooOrder,
+                (string) $odooOrder['state']
+            ));
+        }
+
+        $this->client->executeKw('sale.order', 'unlink', [[(int) $idOdooOrder]]);
     }
 
     private function buildOrderLines(array $products)

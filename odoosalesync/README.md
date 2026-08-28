@@ -187,7 +187,13 @@ Après création, le module compare le `amount_total` d'Odoo au `total_paid_tax_
 
 **Que faire en cas d'écart**
 
-La cause la plus fréquente est un taux de TVA présent dans PrestaShop mais absent d'Odoo (par exemple 10 % ou 5,5 %), ou une référence d'article port/remise non configurée. Après correction dans Odoo, supprimez la commande en brouillon puis relancez la synchronisation : le module détecte sa disparition et la recrée proprement.
+La cause la plus fréquente est un taux de TVA présent dans PrestaShop mais absent d'Odoo (par exemple 10 % ou 5,5 %), ou une référence d'article port/remise non configurée. Après correction dans Odoo, il suffit de cliquer sur **Réessayer** dans le journal : le module supprime la commande en brouillon issue de la tentative ratée et la reconstruit avec les bons montants. Rien à supprimer manuellement.
+
+Cette suppression est strictement encadrée. Le module refuse d'y toucher, avec un message explicite, si :
+
+- la commande Odoo est **déjà confirmée** — elle a des implications comptables, à vous de la corriger ou de l'annuler ;
+- sa **référence client** ne correspond pas à la commande PrestaShop traitée, signe qu'elle ne provient pas de cette synchronisation ;
+- **Odoo est injoignable** : la synchronisation s'interrompt plutôt que de risquer un doublon.
 
 > Le module ne « force » jamais le TTC en recalculant le prix HT à rebours. Le total correspondrait, mais la ventilation HT/TVA serait fausse — donc la déclaration de TVA également. L'écart est signalé pour être corrigé à la source, dans la configuration fiscale.
 
