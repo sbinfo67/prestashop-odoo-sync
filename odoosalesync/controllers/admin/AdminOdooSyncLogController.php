@@ -37,6 +37,20 @@ class AdminOdooSyncLogController extends ModuleAdminController
                 'search' => false,
                 'orderby' => false,
             ],
+            'odoo_picking_name' => [
+                'title' => $this->trans('BL Odoo', [], 'Modules.Odoosalesync.Admin'),
+                'align' => 'center',
+                'callback' => 'displayOdooPicking',
+                'search' => false,
+                'orderby' => false,
+            ],
+            'odoo_invoice_name' => [
+                'title' => $this->trans('Facture Odoo', [], 'Modules.Odoosalesync.Admin'),
+                'align' => 'center',
+                'callback' => 'displayOdooInvoice',
+                'search' => false,
+                'orderby' => false,
+            ],
             'id_odoo_partner' => [
                 'title' => $this->trans('Client Odoo', [], 'Modules.Odoosalesync.Admin'),
                 'align' => 'center',
@@ -119,6 +133,49 @@ class AdminOdooSyncLogController extends ModuleAdminController
         }
 
         return $base . '/mail/view?model=' . urlencode($model) . '&res_id=' . (int) $idRecord;
+    }
+
+    public function displayOdooPicking($name, $row)
+    {
+        return $this->displayStep($name, $row, 'picking', 'stock.picking');
+    }
+
+    public function displayOdooInvoice($name, $row)
+    {
+        return $this->displayStep($name, $row, 'invoice', 'account.move');
+    }
+
+    /**
+     * Rend une étape (BL ou facture) : numéro Odoo cliquable, ou motif de l'échec.
+     * Une étape non encore déclenchée reste vide, pour la distinguer d'un échec.
+     */
+    protected function displayStep($name, $row, $step, $model)
+    {
+        $status = $row[$step . '_status'] ?? null;
+        $idRecord = (int) ($row['id_odoo_' . $step] ?? 0);
+        $message = trim((string) ($row[$step . '_message'] ?? ''));
+
+        if (!$status) {
+            return '<span class="text-muted">—</span>';
+        }
+
+        if ($status === 'error') {
+            return '<span class="badge badge-danger" title="' . htmlspecialchars($message) . '">'
+                . $this->trans('Erreur', [], 'Modules.Odoosalesync.Admin') . '</span>';
+        }
+
+        if (!$idRecord) {
+            // Étape sans objet à créer (commande de services, BL déjà validé...).
+            return '<span class="text-muted" title="' . htmlspecialchars($message) . '">'
+                . $this->trans('Sans objet', [], 'Modules.Odoosalesync.Admin') . '</span>';
+        }
+
+        $label = $name !== null && $name !== '' ? $name : sprintf($this->trans('id %d', [], 'Modules.Odoosalesync.Admin'), $idRecord);
+        $url = $this->odooUrl($model, $idRecord);
+
+        return $url
+            ? '<a href="' . htmlspecialchars($url) . '" target="_blank" rel="noopener">' . htmlspecialchars($label) . '</a>'
+            : htmlspecialchars($label);
     }
 
     /**
@@ -236,7 +293,18 @@ class AdminOdooSyncLogController extends ModuleAdminController
 
         foreach ($idOrders as $idOrder) {
             try {
+                // On rejoue l'étape en échec : commande, puis livraison, puis facture.
+                $row = $sync->getSyncRow($idOrder);
                 $sync->syncOrder($idOrder);
+
+                if (($row['picking_status'] ?? null) === 'error') {
+                    $sync->syncDelivery($idOrder);
+                }
+
+                if (($row['invoice_status'] ?? null) === 'error') {
+                    $sync->syncInvoice($idOrder);
+                }
+
                 $success++;
             } catch (Throwable $e) {
                 $failed++;

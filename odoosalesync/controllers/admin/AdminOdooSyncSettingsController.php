@@ -61,6 +61,10 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
         Configuration::updateValue('ODOOSALESYNC_AUTOCONFIRM', (int) Tools::getValue('ODOOSALESYNC_AUTOCONFIRM'));
         Configuration::updateValue('ODOOSALESYNC_SHIPPING_REF', trim((string) Tools::getValue('ODOOSALESYNC_SHIPPING_REF')));
         Configuration::updateValue('ODOOSALESYNC_DISCOUNT_REF', trim((string) Tools::getValue('ODOOSALESYNC_DISCOUNT_REF')));
+        Configuration::updateValue('ODOOSALESYNC_STATE_DELIVERY', (int) Tools::getValue('ODOOSALESYNC_STATE_DELIVERY'));
+        Configuration::updateValue('ODOOSALESYNC_STATE_INVOICE', (int) Tools::getValue('ODOOSALESYNC_STATE_INVOICE'));
+        Configuration::updateValue('ODOOSALESYNC_PAYMENT_TERM', trim((string) Tools::getValue('ODOOSALESYNC_PAYMENT_TERM')));
+        Configuration::updateValue('ODOOSALESYNC_INVOICE_POST', (int) Tools::getValue('ODOOSALESYNC_INVOICE_POST'));
 
         // Saisie en JJ/MM/AAAA, stockage en ISO : c'est le seul format comparable en SQL.
         $startDate = trim((string) Tools::getValue('ODOOSALESYNC_START_DATE'));
@@ -223,6 +227,37 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
                         ],
                     ],
                     [
+                        'type' => 'select',
+                        'label' => $this->trans('Statut déclenchant la validation du BL Odoo', [], 'Modules.Odoosalesync.Admin'),
+                        'name' => 'ODOOSALESYNC_STATE_DELIVERY',
+                        'desc' => $this->trans('Quand une commande atteint ce statut, le bon de livraison Odoo est validé. Le stock doit être suffisant, sinon l\'erreur est signalée dans le journal.', [], 'Modules.Odoosalesync.Admin'),
+                        'options' => ['query' => $this->orderStateOptions(), 'id' => 'id', 'name' => 'name'],
+                    ],
+                    [
+                        'type' => 'select',
+                        'label' => $this->trans('Statut déclenchant la facture Odoo', [], 'Modules.Odoosalesync.Admin'),
+                        'name' => 'ODOOSALESYNC_STATE_INVOICE',
+                        'desc' => $this->trans('Quand une commande atteint ce statut, la facture Odoo est créée. Le bon de livraison doit être validé au préalable, faute de quoi la facture serait vide.', [], 'Modules.Odoosalesync.Admin'),
+                        'options' => ['query' => $this->orderStateOptions(), 'id' => 'id', 'name' => 'name'],
+                    ],
+                    [
+                        'type' => 'text',
+                        'label' => $this->trans('Condition de paiement Odoo', [], 'Modules.Odoosalesync.Admin'),
+                        'name' => 'ODOOSALESYNC_PAYMENT_TERM',
+                        'desc' => $this->trans('Nom exact de la condition de paiement Odoo à appliquer à la facture (ex. « 30 Days »). Laisser vide pour conserver celle du client.', [], 'Modules.Odoosalesync.Admin'),
+                        'class' => 'fixed-width-lg',
+                    ],
+                    [
+                        'type' => 'switch',
+                        'label' => $this->trans('Comptabiliser la facture automatiquement', [], 'Modules.Odoosalesync.Admin'),
+                        'name' => 'ODOOSALESYNC_INVOICE_POST',
+                        'desc' => $this->trans('Désactiver pour créer la facture en brouillon et la valider vous-même dans Odoo.', [], 'Modules.Odoosalesync.Admin'),
+                        'values' => [
+                            ['id' => 'post_on', 'value' => 1, 'label' => $this->trans('Oui', [], 'Modules.Odoosalesync.Admin')],
+                            ['id' => 'post_off', 'value' => 0, 'label' => $this->trans('Non', [], 'Modules.Odoosalesync.Admin')],
+                        ],
+                    ],
+                    [
                         'type' => 'html',
                         'name' => 'cron_info',
                         'label' => $this->trans('Cron de rattrapage', [], 'Modules.Odoosalesync.Admin'),
@@ -273,6 +308,20 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
         return $helper->generateForm([$fieldsForm]);
     }
 
+    /**
+     * Statuts de commande PrestaShop, pour les listes déroulantes de déclenchement.
+     */
+    protected function orderStateOptions()
+    {
+        $options = [['id' => 0, 'name' => $this->trans('— Désactivé —', [], 'Modules.Odoosalesync.Admin')]];
+
+        foreach (OrderState::getOrderStates((int) $this->context->language->id) as $state) {
+            $options[] = ['id' => (int) $state['id_order_state'], 'name' => $state['name']];
+        }
+
+        return $options;
+    }
+
     protected function getConfigFieldsValues()
     {
         return [
@@ -285,6 +334,10 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
                 OdooOrderSync::formatDateForDisplay(Configuration::get('ODOOSALESYNC_START_DATE'))
             ),
             'ODOOSALESYNC_AUTOCONFIRM' => (int) Configuration::get('ODOOSALESYNC_AUTOCONFIRM'),
+            'ODOOSALESYNC_STATE_DELIVERY' => (int) Configuration::get('ODOOSALESYNC_STATE_DELIVERY'),
+            'ODOOSALESYNC_STATE_INVOICE' => (int) Configuration::get('ODOOSALESYNC_STATE_INVOICE'),
+            'ODOOSALESYNC_PAYMENT_TERM' => Tools::getValue('ODOOSALESYNC_PAYMENT_TERM', Configuration::get('ODOOSALESYNC_PAYMENT_TERM')),
+            'ODOOSALESYNC_INVOICE_POST' => (int) Configuration::get('ODOOSALESYNC_INVOICE_POST'),
             'ODOOSALESYNC_SHIPPING_REF' => Tools::getValue('ODOOSALESYNC_SHIPPING_REF', Configuration::get('ODOOSALESYNC_SHIPPING_REF')),
             'ODOOSALESYNC_DISCOUNT_REF' => Tools::getValue('ODOOSALESYNC_DISCOUNT_REF', Configuration::get('ODOOSALESYNC_DISCOUNT_REF')),
         ];

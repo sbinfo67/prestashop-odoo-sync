@@ -123,6 +123,279 @@ class OdooOrderSync
         }
     }
 
+    /**
+     * Valide le bon de livraison Odoo de la commande.
+     *
+     * Rien n'est validé si le stock ne couvre pas l'intégralité des lignes : l'opérateur doit
+     * d'abord ajuster le stock dans Odoo. C'est volontaire — une validation partielle créerait
+     * des reliquats et une facture incomplète.
+     */
+    public function syncDelivery($idOrder)
+    {
+        $idOrder = (int) $idOrder;
+        $row = $this->requireSyncedOrder($idOrder);
+
+        try {
+            $result = $this->doSyncDelivery((int) $row['id_odoo_order']);
+            $this->saveStepRow($idOrder, 'picking', 'success', $result['id'], $result['name'], $result['message']);
+
+            return $result;
+        } catch (Throwable $e) {
+            $this->saveStepRow($idOrder, 'picking', 'error', null, null, $e->getMessage());
+            throw $e;
+        }
+    }
+
+    private function doSyncDelivery($idOdooOrder)
+    {
+        $order = $this->client->searchRead('sale.order', [['id', '=', $idOdooOrder]], ['picking_ids'], 1);
+
+        if (empty($order)) {
+            throw new OdooOrderSyncException('Commande Odoo #' . $idOdooOrder . ' introuvable.');
+        }
+
+        $pickingIds = array_map('intval', (array) $order[0]['picking_ids']);
+
+        if (empty($pickingIds)) {
+            // Commande sans article stocké (services uniquement) : il n'y a rien à livrer.
+            return ['id' => null, 'name' => null, 'message' => 'Aucun bon de livraison à valider pour cette commande.'];
+        }
+
+        $pickings = $this->client->searchRead(
+            'stock.picking',
+            [['id', 'in', $pickingIds]],
+            ['id', 'name', 'state', 'move_ids']
+        );
+
+        $validated = [];
+        $lastId = null;
+        $lastName = null;
+
+        foreach ($pickings as $picking) {
+            $lastId = (int) $picking['id'];
+            $lastName = (string) $picking['name'];
+
+            if (in_array($picking['state'], ['done', 'cancel'], true)) {
+                continue;
+            }
+
+            $this->assertStockAvailable($picking);
+            $this->client->executeKw('stock.picking', 'button_validate', [[(int) $picking['id']]]);
+            $validated[] = $picking['name'];
+        }
+
+        return [
+            'id' => $lastId,
+            'name' => $lastName,
+            'message' => $validated
+                ? null
+                : 'Bon(s) de livraison déjà validé(s) dans Odoo, aucune action nécessaire.',
+        ];
+    }
+
+    /**
+     * Refuse la validation si une ligne du bon n'est pas intégralement servie par le stock.
+     */
+    private function assertStockAvailable(array $picking)
+    {
+        $moveIds = array_map('intval', (array) $picking['move_ids']);
+
+        if (empty($moveIds)) {
+            return;
+        }
+
+        $moves = $this->client->searchRead(
+            'stock.move',
+            [['id', 'in', $moveIds]],
+            ['product_id', 'product_uom_qty', 'quantity', 'state']
+        );
+
+        $missing = [];
+
+        foreach ($moves as $move) {
+            if (in_array($move['state'], ['done', 'cancel'], true)) {
+                continue;
+            }
+
+            $demand = (float) $move['product_uom_qty'];
+            $ready = (float) $move['quantity'];
+
+            if ($ready + 0.0001 < $demand) {
+                $label = is_array($move['product_id']) ? $move['product_id'][1] : $move['product_id'];
+                $missing[] = sprintf('%s (%s sur %s)', $label, $this->qty($ready), $this->qty($demand));
+            }
+        }
+
+        if ($missing) {
+            throw new OdooOrderSyncException(sprintf(
+                'Stock Odoo insuffisant pour valider le bon de livraison %s : %s. '
+                . 'Ajustez le stock dans Odoo puis relancez, ou validez le bon manuellement.',
+                $picking['name'],
+                implode(', ', $missing)
+            ));
+        }
+    }
+
+    private function qty($value)
+    {
+        return rtrim(rtrim(number_format((float) $value, 2, ',', ''), '0'), ',');
+    }
+
+    /**
+     * Crée puis comptabilise la facture Odoo de la commande.
+     *
+     * Le bon de livraison doit être validé au préalable : la facture reprend les quantités
+     * livrées, elle serait donc vide sans lui.
+     */
+    public function syncInvoice($idOrder)
+    {
+        $idOrder = (int) $idOrder;
+        $row = $this->requireSyncedOrder($idOrder);
+
+        try {
+            $result = $this->doSyncInvoice((int) $row['id_odoo_order']);
+            $this->saveStepRow($idOrder, 'invoice', 'success', $result['id'], $result['name'], $result['message']);
+
+            return $result;
+        } catch (Throwable $e) {
+            $this->saveStepRow($idOrder, 'invoice', 'error', null, null, $e->getMessage());
+            throw $e;
+        }
+    }
+
+    private function doSyncInvoice($idOdooOrder)
+    {
+        $this->assertDeliveryDone($idOdooOrder);
+
+        $before = $this->client->searchRead('sale.order', [['id', '=', $idOdooOrder]], ['invoice_ids'], 1);
+        $existing = !empty($before) ? array_map('intval', (array) $before[0]['invoice_ids']) : [];
+
+        // _create_invoices est une méthode privée, inaccessible par l'API : il faut passer par
+        // l'assistant de facturation. Le contexte doit lui être fourni dès sa création, sinon il
+        // répond « No items are available to invoice » alors que la commande est facturable.
+        $context = ['active_model' => 'sale.order', 'active_ids' => [$idOdooOrder], 'active_id' => $idOdooOrder];
+
+        $idWizard = $this->client->executeKw(
+            'sale.advance.payment.inv',
+            'create',
+            [['advance_payment_method' => 'delivered']],
+            ['context' => $context]
+        );
+
+        if (is_array($idWizard)) {
+            $idWizard = reset($idWizard);
+        }
+
+        $this->client->executeKw('sale.advance.payment.inv', 'create_invoices', [[(int) $idWizard]], ['context' => $context]);
+
+        $after = $this->client->searchRead('sale.order', [['id', '=', $idOdooOrder]], ['invoice_ids'], 1);
+        $all = !empty($after) ? array_map('intval', (array) $after[0]['invoice_ids']) : [];
+        $new = array_values(array_diff($all, $existing));
+
+        if (empty($new)) {
+            throw new OdooOrderSyncException('Odoo n\'a créé aucune facture pour cette commande.');
+        }
+
+        $idInvoice = (int) $new[0];
+        $this->applyPaymentTerm($idInvoice);
+
+        if (Configuration::get('ODOOSALESYNC_INVOICE_POST')) {
+            $this->client->executeKw('account.move', 'action_post', [[$idInvoice]]);
+        }
+
+        $invoice = $this->client->searchRead('account.move', [['id', '=', $idInvoice]], ['name', 'state'], 1);
+
+        return [
+            'id' => $idInvoice,
+            'name' => !empty($invoice) ? (string) $invoice[0]['name'] : null,
+            'message' => !empty($invoice) && $invoice[0]['state'] !== 'posted'
+                ? 'Facture créée en brouillon (comptabilisation désactivée).'
+                : null,
+        ];
+    }
+
+    /**
+     * Vérifie que la livraison est effectivement validée avant de facturer.
+     */
+    private function assertDeliveryDone($idOdooOrder)
+    {
+        $order = $this->client->searchRead('sale.order', [['id', '=', $idOdooOrder]], ['picking_ids'], 1);
+        $pickingIds = !empty($order) ? array_map('intval', (array) $order[0]['picking_ids']) : [];
+
+        if (empty($pickingIds)) {
+            return;
+        }
+
+        $pending = $this->client->searchRead(
+            'stock.picking',
+            [['id', 'in', $pickingIds], ['state', 'not in', ['done', 'cancel']]],
+            ['name', 'state']
+        );
+
+        if ($pending) {
+            throw new OdooOrderSyncException(sprintf(
+                'Le bon de livraison %s n\'est pas validé dans Odoo : la facture reprendrait des '
+                . 'lignes vides. Validez la livraison, puis relancez la facturation.',
+                implode(', ', array_column($pending, 'name'))
+            ));
+        }
+    }
+
+    /**
+     * Applique la condition de paiement configurée, recherchée par son nom.
+     */
+    private function applyPaymentTerm($idInvoice)
+    {
+        $name = trim((string) Configuration::get('ODOOSALESYNC_PAYMENT_TERM'));
+
+        if ($name === '') {
+            return;
+        }
+
+        $terms = $this->client->searchRead('account.payment.term', [['name', '=', $name]], ['id'], 1);
+
+        if (empty($terms)) {
+            throw new OdooOrderSyncException(sprintf(
+                'Condition de paiement « %s » introuvable dans Odoo. Corrigez le nom dans la '
+                . 'configuration du module (il doit correspondre exactement à celui d\'Odoo).',
+                $name
+            ));
+        }
+
+        $this->client->executeKw('account.move', 'write', [[(int) $idInvoice], ['invoice_payment_term_id' => (int) $terms[0]['id']]]);
+    }
+
+    /**
+     * La commande doit avoir été synchronisée avec succès avant toute étape suivante.
+     */
+    private function requireSyncedOrder($idOrder)
+    {
+        $row = $this->getSyncRow($idOrder);
+
+        if (!$row || $row['status'] !== 'success' || (int) $row['id_odoo_order'] <= 0) {
+            throw new OdooOrderSyncException(
+                'La commande #' . $idOrder . ' n\'est pas encore synchronisée dans Odoo : '
+                . 'traitez d\'abord la synchronisation de la commande.'
+            );
+        }
+
+        return $row;
+    }
+
+    /**
+     * Enregistre le résultat d'une étape (picking ou invoice) dans le journal.
+     */
+    private function saveStepRow($idOrder, $step, $status, $idRecord, $name, $message)
+    {
+        Db::getInstance()->update('odoosync_order', [
+            'id_odoo_' . $step => $idRecord !== null ? (int) $idRecord : null,
+            'odoo_' . $step . '_name' => $name !== null ? pSQL($name) : null,
+            $step . '_status' => pSQL($status),
+            $step . '_message' => $message !== null ? pSQL($message, true) : null,
+            'date_upd' => date('Y-m-d H:i:s'),
+        ], 'id_order = ' . (int) $idOrder);
+    }
+
     private function doSync($idOrder)
     {
         $order = new Order($idOrder);

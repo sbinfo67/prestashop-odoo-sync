@@ -12,7 +12,7 @@ class Odoosalesync extends Module
     {
         $this->name = 'odoosalesync';
         $this->tab = 'administration';
-        $this->version = '1.5.1';
+        $this->version = '1.6.0';
         $this->author = 'SBINFO';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -31,12 +31,17 @@ class Odoosalesync extends Module
 
         return parent::install()
             && $this->registerHook('actionPaymentConfirmation')
+            && $this->registerHook('actionOrderStatusPostUpdate')
             && $this->installTabs()
             && Configuration::updateValue('ODOOSALESYNC_URL', '')
             && Configuration::updateValue('ODOOSALESYNC_DB', '')
             && Configuration::updateValue('ODOOSALESYNC_LOGIN', '')
             && Configuration::updateValue('ODOOSALESYNC_API_KEY', '')
             && Configuration::updateValue('ODOOSALESYNC_AUTOCONFIRM', 1)
+            && Configuration::updateValue('ODOOSALESYNC_STATE_DELIVERY', (int) Configuration::get('PS_OS_PREPARATION'))
+            && Configuration::updateValue('ODOOSALESYNC_STATE_INVOICE', (int) Configuration::get('PS_OS_SHIPPING'))
+            && Configuration::updateValue('ODOOSALESYNC_PAYMENT_TERM', '30 Days')
+            && Configuration::updateValue('ODOOSALESYNC_INVOICE_POST', 1)
             && Configuration::updateValue('ODOOSALESYNC_SHIPPING_REF', '')
             && Configuration::updateValue('ODOOSALESYNC_DISCOUNT_REF', '')
             && Configuration::updateValue('ODOOSALESYNC_START_DATE', date('Y-m-d'))
@@ -54,6 +59,10 @@ class Odoosalesync extends Module
             && Configuration::deleteByName('ODOOSALESYNC_LOGIN')
             && Configuration::deleteByName('ODOOSALESYNC_API_KEY')
             && Configuration::deleteByName('ODOOSALESYNC_AUTOCONFIRM')
+            && Configuration::deleteByName('ODOOSALESYNC_STATE_DELIVERY')
+            && Configuration::deleteByName('ODOOSALESYNC_STATE_INVOICE')
+            && Configuration::deleteByName('ODOOSALESYNC_PAYMENT_TERM')
+            && Configuration::deleteByName('ODOOSALESYNC_INVOICE_POST')
             && Configuration::deleteByName('ODOOSALESYNC_SHIPPING_REF')
             && Configuration::deleteByName('ODOOSALESYNC_DISCOUNT_REF')
             && Configuration::deleteByName('ODOOSALESYNC_START_DATE')
@@ -115,6 +124,44 @@ class Odoosalesync extends Module
         Tools::redirectAdmin(
             $this->context->link->getAdminLink('AdminOdooSyncSettings')
         );
+    }
+
+    /**
+     * Déclenché à chaque changement d'état de commande : sert à valider le bon de livraison
+     * puis à établir la facture dans Odoo, selon les états configurés.
+     * Comme le hook de paiement, il ne doit jamais interrompre le back-office.
+     */
+    public function hookActionOrderStatusPostUpdate($params)
+    {
+        if (empty($params['id_order']) || empty($params['newOrderStatus'])) {
+            return;
+        }
+
+        $idOrder = (int) $params['id_order'];
+        $idState = (int) $params['newOrderStatus']->id;
+
+        $steps = [
+            (int) Configuration::get('ODOOSALESYNC_STATE_DELIVERY') => 'syncDelivery',
+            (int) Configuration::get('ODOOSALESYNC_STATE_INVOICE') => 'syncInvoice',
+        ];
+
+        if (!$idState || !isset($steps[$idState])) {
+            return;
+        }
+
+        try {
+            $sync = new OdooOrderSync();
+            $sync->{$steps[$idState]}($idOrder);
+        } catch (Throwable $e) {
+            PrestaShopLogger::addLog(
+                'Odoosalesync: ' . $steps[$idState] . ' a échoué pour la commande #' . $idOrder . ' : ' . $e->getMessage(),
+                3,
+                null,
+                'Order',
+                $idOrder,
+                true
+            );
+        }
     }
 
     /**

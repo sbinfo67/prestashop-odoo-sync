@@ -227,6 +227,22 @@ Le rapprochement des articles se fait par **égalité stricte** sur `default_cod
 
 Recopiez donc la référence telle qu'elle apparaît dans Odoo, sans changer la casse ni ajouter d'espace. Une casse divergente produit exactement la même erreur qu'une référence absente : `Aucun produit Odoo trouvé pour la référence "..."`, ou l'article de port introuvable.
 
+## Livraison et facturation
+
+Au-delà de la commande, le module suit deux étapes déclenchées par les **statuts de commande PrestaShop**, choisis dans sa configuration.
+
+**Validation du bon de livraison** — au statut configuré (par défaut *Préparation en cours*, celui que PrestaShop applique à l'impression du bon de livraison), le module valide le BL Odoo de la commande.
+
+Si le stock Odoo ne couvre pas l'intégralité des lignes, **rien n'est validé** : la synchro passe en erreur en nommant les articles et les quantités manquantes. L'opérateur ajuste le stock dans Odoo, puis relance depuis le journal — ou valide le bon à la main. Une validation partielle n'est jamais faite d'office : elle créerait des reliquats et une facture incomplète.
+
+**Facturation** — au statut configuré (par défaut *Expédié*), le module crée la facture Odoo, lui applique la condition de paiement choisie (par défaut « 30 Days ») et la comptabilise.
+
+Le bon de livraison doit être validé au préalable, sans quoi la facture reprendrait des lignes vides. Le module le vérifie et refuse de facturer tant que ce n'est pas le cas, en le signalant clairement.
+
+> La comptabilisation automatique peut être désactivée : la facture est alors créée en brouillon et vous la validez vous-même dans Odoo.
+
+Ces deux étapes apparaissent dans le journal, colonnes **BL Odoo** et **Facture Odoo**, avec le numéro Odoo cliquable. Une étape non encore déclenchée reste vide, ce qui la distingue d'un échec. Le bouton **Réessayer** rejoue l'étape en erreur, sans refaire celles déjà réussies.
+
 ## Lancer une synchronisation manuelle
 
 Le bouton **Synchroniser maintenant**, sur l'écran de configuration, traite les commandes payées en attente (jamais synchronisées, ou en erreur) depuis la date de début. Utile pour :
