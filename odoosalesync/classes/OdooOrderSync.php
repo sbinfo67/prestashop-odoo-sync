@@ -43,6 +43,9 @@ class OdooOrderSync
     /** @var int|null */
     private $lastOdooPartner = null;
 
+    /** @var string|null numéro de commande Odoo (ex. S00513), affiché dans le journal */
+    private $lastOdooOrderName = null;
+
     public function __construct(OdooClient $client = null)
     {
         $this->client = $client ?: self::buildClientFromConfig();
@@ -107,13 +110,13 @@ class OdooOrderSync
                 return $result;
             }
 
-            $this->saveSyncRow($idOrder, 'success', $result['id_odoo_order'], $result['id_odoo_partner'], null);
+            $this->saveSyncRow($idOrder, 'success', $result['id_odoo_order'], $result['id_odoo_partner'], null, $this->lastOdooOrderName);
 
             return $result;
         } catch (Throwable $e) {
             // On conserve les identifiants déjà obtenus : si la commande a été créée dans Odoo
             // avant l'échec, elle ne doit jamais être recréée par une tentative ultérieure.
-            $this->saveSyncRow($idOrder, 'error', $this->lastOdooOrder, $this->lastOdooPartner, $e->getMessage());
+            $this->saveSyncRow($idOrder, 'error', $this->lastOdooOrder, $this->lastOdooPartner, $e->getMessage(), $this->lastOdooOrderName);
 
             PrestaShopLogger::addLog(
                 'Odoosalesync: échec de synchronisation de la commande #' . $idOrder . ' : ' . $e->getMessage(),
@@ -184,6 +187,7 @@ class OdooOrderSync
         return [
             'id_odoo_order' => $idOdooOrder,
             'id_odoo_partner' => $idOdooPartner,
+            'odoo_order_name' => $this->lastOdooOrderName,
         ];
     }
 
@@ -194,11 +198,15 @@ class OdooOrderSync
      */
     private function assertTotalMatches(Order $order, $idOdooOrder)
     {
-        $rows = $this->client->searchRead('sale.order', [['id', '=', (int) $idOdooOrder]], ['amount_total'], 1);
+        $rows = $this->client->searchRead('sale.order', [['id', '=', (int) $idOdooOrder]], ['amount_total', 'name'], 1);
 
         if (empty($rows)) {
             return;
         }
+
+        // Le numéro affiché dans Odoo (ex. S00513) diffère de l'identifiant technique :
+        // sans lui, la commande est introuvable depuis le journal.
+        $this->lastOdooOrderName = isset($rows[0]['name']) ? (string) $rows[0]['name'] : null;
 
         $odooTotal = (float) $rows[0]['amount_total'];
         $shopTotal = (float) $order->total_paid_tax_incl;
@@ -636,7 +644,7 @@ class OdooOrderSync
         );
     }
 
-    private function saveSyncRow($idOrder, $status, $idOdooOrder, $idOdooPartner, $message)
+    private function saveSyncRow($idOrder, $status, $idOdooOrder, $idOdooPartner, $message, $odooOrderName = null)
     {
         $existing = $this->getSyncRow($idOrder);
 
@@ -644,6 +652,7 @@ class OdooOrderSync
             'id_order' => (int) $idOrder,
             'id_odoo_order' => $idOdooOrder !== null ? (int) $idOdooOrder : null,
             'id_odoo_partner' => $idOdooPartner !== null ? (int) $idOdooPartner : null,
+            'odoo_order_name' => $odooOrderName !== null ? pSQL($odooOrderName) : null,
             'status' => pSQL($status),
             'message' => $message !== null ? pSQL($message, true) : null,
             'date_upd' => date('Y-m-d H:i:s'),

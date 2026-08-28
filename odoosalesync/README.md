@@ -264,7 +264,9 @@ https://votre-boutique.example/modules/odoosalesync/cron.php?token=XXXXXXXX
 
 ## Journal / réessai manuel
 
-Le journal s'ouvre depuis l'écran de configuration du module, bouton **Ouvrir le journal de synchronisation** (les onglets créés par le module n'apparaissent pas dans le menu latéral de PrestaShop 9). Il liste toutes les tentatives de synchro (succès/erreur, message d'erreur, IDs Odoo créés). Un bouton "Réessayer" permet de relancer une commande en échec, et un bouton en haut de la liste permet de réessayer toutes les commandes en erreur d'un coup.
+Le journal s'ouvre depuis l'écran de configuration du module, bouton **Ouvrir le journal de synchronisation** (les onglets créés par le module n'apparaissent pas dans le menu latéral de PrestaShop 9). Il liste toutes les tentatives de synchro (succès/erreur, message d'erreur, commande et client Odoo créés).
+
+La colonne **Commande Odoo** affiche le numéro tel qu'il apparaît dans Odoo (ex. `S00513`), et non l'identifiant technique de la base — ce dernier ne permet pas de retrouver la commande depuis l'interface d'Odoo. Les lignes antérieures à la version 1.3.5 n'ont pas ce numéro et affichent `id 513` ; elles restent retrouvables dans Odoo en cherchant la **référence client**, où le module inscrit la référence de la commande PrestaShop. Un bouton "Réessayer" permet de relancer une commande en échec, et un bouton en haut de la liste permet de réessayer toutes les commandes en erreur d'un coup.
 
 ## Limites connues (v1)
 

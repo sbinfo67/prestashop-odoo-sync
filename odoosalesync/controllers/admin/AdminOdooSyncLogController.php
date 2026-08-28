@@ -26,7 +26,13 @@ class AdminOdooSyncLogController extends ModuleAdminController
         $this->fields_list = [
             'id_odoosync_order' => ['title' => $this->trans('ID', [], 'Modules.Odoosalesync.Admin'), 'align' => 'center'],
             'id_order' => ['title' => $this->trans('Commande PrestaShop', [], 'Modules.Odoosalesync.Admin'), 'align' => 'center'],
-            'id_odoo_order' => ['title' => $this->trans('Commande Odoo', [], 'Modules.Odoosalesync.Admin'), 'align' => 'center'],
+            'odoo_order_name' => [
+                'title' => $this->trans('Commande Odoo', [], 'Modules.Odoosalesync.Admin'),
+                'align' => 'center',
+                'callback' => 'displayOdooOrder',
+                'search' => false,
+                'orderby' => false,
+            ],
             'id_odoo_partner' => ['title' => $this->trans('Client Odoo', [], 'Modules.Odoosalesync.Admin'), 'align' => 'center'],
             'status' => [
                 'title' => $this->trans('Statut', [], 'Modules.Odoosalesync.Admin'),
@@ -52,6 +58,21 @@ class AdminOdooSyncLogController extends ModuleAdminController
             'desc' => $this->trans('Réessayer toutes les synchros en erreur', [], 'Modules.Odoosalesync.Admin'),
             'icon' => 'process-icon-refresh',
         ];
+    }
+
+    /**
+     * Affiche le numéro de commande Odoo (ex. S00513), seul identifiant recherchable dans Odoo.
+     * Les lignes créées avant la 1.3.5 n'ont pas ce numéro : on retombe sur l'identifiant technique.
+     */
+    public function displayOdooOrder($name, $row)
+    {
+        if (!empty($name)) {
+            return $name;
+        }
+
+        return !empty($row['id_odoo_order'])
+            ? sprintf($this->trans('id %d', [], 'Modules.Odoosalesync.Admin'), (int) $row['id_odoo_order'])
+            : '-';
     }
 
     /**

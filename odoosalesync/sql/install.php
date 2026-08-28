@@ -9,6 +9,7 @@ $sql[] = 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'odoosync_order` (
     `id_odoosync_order` INT UNSIGNED NOT NULL AUTO_INCREMENT,
     `id_order` INT UNSIGNED NOT NULL,
     `id_odoo_order` INT UNSIGNED NULL DEFAULT NULL,
+    `odoo_order_name` VARCHAR(64) NULL DEFAULT NULL,
     `id_odoo_partner` INT UNSIGNED NULL DEFAULT NULL,
     `status` ENUM(\'success\', \'error\') NOT NULL,
     `message` TEXT NULL DEFAULT NULL,

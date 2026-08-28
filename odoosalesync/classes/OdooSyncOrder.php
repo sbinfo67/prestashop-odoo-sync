@@ -11,6 +11,7 @@ class OdooSyncOrder extends ObjectModel
 {
     public $id_order;
     public $id_odoo_order;
+    public $odoo_order_name;
     public $id_odoo_partner;
     public $status;
     public $message;
@@ -23,6 +24,7 @@ class OdooSyncOrder extends ObjectModel
         'fields' => [
             'id_order' => ['type' => self::TYPE_INT, 'validate' => 'isUnsignedId', 'required' => true],
             'id_odoo_order' => ['type' => self::TYPE_INT, 'validate' => 'isUnsignedId'],
+            'odoo_order_name' => ['type' => self::TYPE_STRING, 'validate' => 'isGenericName', 'size' => 64],
             'id_odoo_partner' => ['type' => self::TYPE_INT, 'validate' => 'isUnsignedId'],
             'status' => ['type' => self::TYPE_STRING, 'validate' => 'isGenericName', 'required' => true, 'size' => 10],
             'message' => ['type' => self::TYPE_STRING, 'validate' => 'isCleanHtml'],
