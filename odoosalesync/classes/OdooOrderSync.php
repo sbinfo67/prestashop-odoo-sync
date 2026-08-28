@@ -67,6 +67,13 @@ class OdooOrderSync
     public function syncOrder($idOrder)
     {
         $idOrder = (int) $idOrder;
+
+        // Contrôle avant le bloc try : une commande inexistante ne doit pas laisser de trace
+        // dans le journal, sans quoi un appel erroné y créerait une ligne fantôme (id_order = 0).
+        if ($idOrder <= 0 || !Validate::isLoadedObject(new Order($idOrder))) {
+            throw new OdooOrderSyncException('Commande PrestaShop #' . $idOrder . ' introuvable.');
+        }
+
         $existing = $this->getSyncRow($idOrder);
 
         if ($existing && $existing['status'] === 'success') {

@@ -54,10 +54,14 @@ class AdminOdooSyncLogController extends ModuleAdminController
         ];
     }
 
-    public function displayRetryLink($token, $id, $row = null)
+    /**
+     * PrestaShop appelle display{Action}Link($token, $id, $name) : le 3e argument est un libellé,
+     * pas la ligne, et $id est la clé primaire du journal — pas l'identifiant de commande.
+     * La commande est donc résolue au moment du clic, à partir de cette clé.
+     */
+    public function displayRetryLink($token, $id, $name = null)
     {
-        $idOrder = (int) ($row['id_order'] ?? 0);
-        $url = self::$currentIndex . '&id_order=' . $idOrder . '&retryOrder=1&token=' . $this->token;
+        $url = self::$currentIndex . '&id_odoosync_order=' . (int) $id . '&retryOrder=1&token=' . $this->token;
 
         return '<a class="btn btn-default" href="' . $url . '" title="' . $this->trans('Réessayer', [], 'Modules.Odoosalesync.Admin') . '">'
             . '<i class="icon-refresh"></i> ' . $this->trans('Réessayer', [], 'Modules.Odoosalesync.Admin')
@@ -67,7 +71,16 @@ class AdminOdooSyncLogController extends ModuleAdminController
     public function postProcess()
     {
         if (Tools::isSubmit('retryOrder')) {
-            $this->retryOrders([(int) Tools::getValue('id_order')]);
+            $idOrder = (int) Db::getInstance()->getValue(
+                'SELECT id_order FROM `' . _DB_PREFIX_ . 'odoosync_order`
+                 WHERE id_odoosync_order = ' . (int) Tools::getValue('id_odoosync_order')
+            );
+
+            if ($idOrder) {
+                $this->retryOrders([$idOrder]);
+            } else {
+                $this->errors[] = $this->trans('Ligne de journal introuvable.', [], 'Modules.Odoosalesync.Admin');
+            }
         } elseif (Tools::isSubmit('retryAllErrors')) {
             $rows = Db::getInstance()->executeS(
                 'SELECT id_order FROM `' . _DB_PREFIX_ . 'odoosync_order` WHERE status = "error"'
