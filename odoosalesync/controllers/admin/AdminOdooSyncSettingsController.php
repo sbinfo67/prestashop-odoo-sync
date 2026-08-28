@@ -81,6 +81,15 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
         }
         Configuration::updateValue('ODOOSALESYNC_INVOICE_POST', (int) Tools::getValue('ODOOSALESYNC_INVOICE_POST'));
 
+        // Les cases à cocher sont transmises sous la forme NOM_<id> : on reconstitue la liste.
+        $fullStates = [];
+        foreach ($this->orderStateOptions(false) as $state) {
+            if (Tools::getValue('ODOOSALESYNC_STATES_FULL_' . (int) $state['id'])) {
+                $fullStates[] = (int) $state['id'];
+            }
+        }
+        Configuration::updateValue('ODOOSALESYNC_STATES_FULL', implode(',', $fullStates));
+
         // Saisie en JJ/MM/AAAA, stockage en ISO : c'est le seul format comparable en SQL.
         $startDate = trim((string) Tools::getValue('ODOOSALESYNC_START_DATE'));
         if ($startDate === '') {
@@ -257,6 +266,13 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
                     ],
                     $this->paymentTermField(),
                     [
+                        'type' => 'checkbox',
+                        'label' => $this->trans('Statuts déclenchant le cycle complet', [], 'Modules.Odoosalesync.Admin'),
+                        'name' => 'ODOOSALESYNC_STATES_FULL',
+                        'desc' => $this->trans('Une commande déjà dans l\'un de ces statuts enchaîne commande, bon de livraison et facture en une seule passe. Prévu pour la première synchronisation d\'une boutique en production, dont l\'historique est déjà livré. Cocher typiquement « Livré ».', [], 'Modules.Odoosalesync.Admin'),
+                        'values' => ['query' => $this->orderStateOptions(false), 'id' => 'id', 'name' => 'name'],
+                    ],
+                    [
                         'type' => 'switch',
                         'label' => $this->trans('Comptabiliser la facture automatiquement', [], 'Modules.Odoosalesync.Admin'),
                         'name' => 'ODOOSALESYNC_INVOICE_POST',
@@ -368,9 +384,9 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
     /**
      * Statuts de commande PrestaShop, pour les listes déroulantes de déclenchement.
      */
-    protected function orderStateOptions()
+    protected function orderStateOptions($withNone = true)
     {
-        $options = [['id' => 0, 'name' => $this->trans('— Désactivé —', [], 'Modules.Odoosalesync.Admin')]];
+        $options = $withNone ? [['id' => 0, 'name' => $this->trans('— Désactivé —', [], 'Modules.Odoosalesync.Admin')]] : [];
 
         foreach (OrderState::getOrderStates((int) $this->context->language->id) as $state) {
             $options[] = ['id' => (int) $state['id_order_state'], 'name' => $state['name']];
@@ -381,7 +397,12 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
 
     protected function getConfigFieldsValues()
     {
-        return [
+        $values = [];
+        foreach (OdooOrderSync::getFullCycleStates() as $idState) {
+            $values['ODOOSALESYNC_STATES_FULL_' . $idState] = 1;
+        }
+
+        return $values + [
             'ODOOSALESYNC_URL' => Tools::getValue('ODOOSALESYNC_URL', Configuration::get('ODOOSALESYNC_URL')),
             'ODOOSALESYNC_DB' => Tools::getValue('ODOOSALESYNC_DB', Configuration::get('ODOOSALESYNC_DB')),
             'ODOOSALESYNC_LOGIN' => Tools::getValue('ODOOSALESYNC_LOGIN', Configuration::get('ODOOSALESYNC_LOGIN')),

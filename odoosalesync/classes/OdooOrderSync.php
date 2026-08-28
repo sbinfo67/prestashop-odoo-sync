@@ -124,6 +124,70 @@ class OdooOrderSync
     }
 
     /**
+     * Traite une commande de bout en bout : commande, puis livraison et facture selon l'état
+     * PrestaShop courant. Chaque étape est ignorée si elle a déjà réussi, ce qui rend l'appel
+     * rejouable — un réessai après correction du stock reprend là où il s'était arrêté.
+     */
+    public function syncPipeline($idOrder)
+    {
+        $idOrder = (int) $idOrder;
+        $result = $this->syncOrder($idOrder);
+
+        if (!empty($result['skipped'])) {
+            return $result;
+        }
+
+        foreach ($this->stepsForOrder($idOrder) as $step) {
+            $this->{$step}($idOrder);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Étapes attendues pour une commande, d'après son état PrestaShop courant.
+     * Les états « finalisés » (commandes déjà livrées lors d'un rattrapage d'historique)
+     * déclenchent la chaîne complète ; la facture implique toujours la livraison, sans quoi
+     * elle serait vide.
+     *
+     * @return string[]
+     */
+    public function stepsForOrder($idOrder)
+    {
+        $order = new Order((int) $idOrder);
+        $state = (int) $order->current_state;
+
+        if (!$state) {
+            return [];
+        }
+
+        if (in_array($state, self::getFullCycleStates(), true)
+            || $state === (int) Configuration::get('ODOOSALESYNC_STATE_INVOICE')) {
+            return ['syncDelivery', 'syncInvoice'];
+        }
+
+        if ($state === (int) Configuration::get('ODOOSALESYNC_STATE_DELIVERY')) {
+            return ['syncDelivery'];
+        }
+
+        return [];
+    }
+
+    /**
+     * @return int[] états PrestaShop considérés comme finalisés
+     */
+    public static function getFullCycleStates()
+    {
+        $raw = trim((string) Configuration::get('ODOOSALESYNC_STATES_FULL'));
+
+        if ($raw === '') {
+            return [];
+        }
+
+        return array_values(array_filter(array_map('intval', explode(',', $raw))));
+    }
+
+    /**
      * Valide le bon de livraison Odoo de la commande.
      *
      * Rien n'est validé si le stock ne couvre pas l'intégralité des lignes : l'opérateur doit
@@ -134,6 +198,10 @@ class OdooOrderSync
     {
         $idOrder = (int) $idOrder;
         $row = $this->requireSyncedOrder($idOrder);
+
+        if (($row['picking_status'] ?? null) === 'success') {
+            return ['id' => (int) $row['id_odoo_picking'], 'name' => $row['odoo_picking_name'], 'message' => null];
+        }
 
         try {
             $result = $this->doSyncDelivery((int) $row['id_odoo_order']);
@@ -251,6 +319,10 @@ class OdooOrderSync
     {
         $idOrder = (int) $idOrder;
         $row = $this->requireSyncedOrder($idOrder);
+
+        if (($row['invoice_status'] ?? null) === 'success') {
+            return ['id' => (int) $row['id_odoo_invoice'], 'name' => $row['odoo_invoice_name'], 'message' => null];
+        }
 
         try {
             $result = $this->doSyncInvoice((int) $row['id_odoo_order']);
@@ -462,6 +534,11 @@ class OdooOrderSync
 
         if (Configuration::get('ODOOSALESYNC_AUTOCONFIRM')) {
             $this->client->executeKw('sale.order', 'action_confirm', [[$idOdooOrder]]);
+
+            // Odoo remet date_order à l'instant présent en confirmant (_prepare_confirmation_values).
+            // On rétablit la date réelle de la commande PrestaShop, indispensable pour un rattrapage
+            // d'historique où les commandes datent de plusieurs semaines.
+            $this->client->executeKw('sale.order', 'write', [[$idOdooOrder], ['date_order' => $order->date_add]]);
         }
 
         return [
@@ -1094,7 +1171,7 @@ class OdooOrderSync
                     $context->currency = new Currency((int) $order->id_currency);
                 }
 
-                $sync->syncOrder((int) $row['id_order']);
+                $sync->syncPipeline((int) $row['id_order']);
                 $success++;
             } catch (Throwable $e) {
                 $failed++;

@@ -293,18 +293,9 @@ class AdminOdooSyncLogController extends ModuleAdminController
 
         foreach ($idOrders as $idOrder) {
             try {
-                // On rejoue l'étape en échec : commande, puis livraison, puis facture.
-                $row = $sync->getSyncRow($idOrder);
-                $sync->syncOrder($idOrder);
-
-                if (($row['picking_status'] ?? null) === 'error') {
-                    $sync->syncDelivery($idOrder);
-                }
-
-                if (($row['invoice_status'] ?? null) === 'error') {
-                    $sync->syncInvoice($idOrder);
-                }
-
+                // La chaîne complète est rejouée : les étapes déjà réussies sont ignorées,
+                // celles en échec reprennent — un stock corrigé permet d'aller jusqu'à la facture.
+                $sync->syncPipeline($idOrder);
                 $success++;
             } catch (Throwable $e) {
                 $failed++;

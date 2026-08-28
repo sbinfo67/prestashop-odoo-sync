@@ -247,6 +247,21 @@ Si Odoo est injoignable au moment d'afficher l'écran de configuration, le champ
 
 Ces deux étapes apparaissent dans le journal, colonnes **BL Odoo** et **Facture Odoo**, avec le numéro Odoo cliquable. Une étape non encore déclenchée reste vide, ce qui la distingue d'un échec. Le bouton **Réessayer** rejoue l'étape en erreur, sans refaire celles déjà réussies.
 
+## Reprise d'un historique déjà livré
+
+Lors de la première synchronisation d'une boutique en production, les commandes passées sont souvent déjà livrées. Valider leur bon de livraison puis créer leur facture une par une dans Odoo serait interminable.
+
+Le champ **Statuts déclenchant le cycle complet** répond à ce cas : une commande dont le statut PrestaShop figure dans cette liste (typiquement *Livré*) enchaîne **commande, bon de livraison et facture** en une seule passe, via le bouton *Synchroniser maintenant* ou le cron.
+
+Chaque étape est ignorée si elle a déjà réussi : relancer la chaîne est donc sans risque. Si un bon de livraison échoue faute de stock, corrigez le stock dans Odoo puis cliquez sur **Réessayer** — la reprise repart du bon de livraison et poursuit jusqu'à la facture, sans recréer la commande.
+
+> **Le stock Odoo est décrémenté au moment de la validation des bons de livraison**, y compris pour des commandes anciennes. Si vous avez déjà ajusté manuellement votre stock Odoo pour tenir compte de ces ventes, il serait décompté deux fois. Reprenez l'historique **avant** de caler votre stock, ou ajustez-le après coup.
+
+### Dates
+
+- La commande Odoo porte la **date réelle de la commande PrestaShop**. Odoo réinitialise cette date lors de la confirmation ; le module la rétablit ensuite, faute de quoi tout un historique se retrouverait daté du jour de la reprise.
+- La facture, elle, est datée du **jour de la synchronisation**, date comptable comprise. C'est volontaire : antidater une facture ferait entrer des écritures dans une période potentiellement déjà déclarée. L'échéance court donc à partir de la date de reprise.
+
 ## Lancer une synchronisation manuelle
 
 Le bouton **Synchroniser maintenant**, sur l'écran de configuration, traite les commandes payées en attente (jamais synchronisées, ou en erreur) depuis la date de début. Utile pour :
