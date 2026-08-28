@@ -262,7 +262,7 @@ Le journal s'ouvre depuis l'écran de configuration du module, bouton **Ouvrir l
 2. Passer une commande test côté PrestaShop avec un moyen de paiement qui valide immédiatement le paiement (ex. paiement en espèces / virement marqué payé en back-office, ou module de paiement de test).
    → Vérifier dans Odoo (Ventes) qu'une commande a bien été créée avec les bonnes lignes de produits et le bon montant, et confirmée si l'option est activée.
    → Vérifier dans Contacts qu'un `res.partner` a été créé avec le bon email/adresse si le client n'existait pas.
-   → Vérifier dans Modules > Synchronisation Odoo > Journal qu'une ligne `success` apparaît avec les bons IDs.
+   → Vérifier dans le journal de synchronisation (bouton depuis l'écran de configuration) qu'une ligne `success` apparaît avec les bons IDs.
 3. Repasser une commande pour le **même client** → vérifier qu'aucun doublon de contact n'est créé dans Odoo (le partner existant est réutilisé).
 4. Tester le cas d'erreur : renseigner temporairement une mauvaise clé API, passer une commande → vérifier que le paiement PrestaShop aboutit normalement pour le client, qu'une ligne `error` apparaît dans le Journal avec un message clair, puis remettre la bonne clé API et cliquer "Réessayer" (ou attendre le cron) → la commande doit passer en `success`.
 5. Tester une référence produit absente d'Odoo → vérifier que la synchro échoue proprement avec un message explicite dans le Journal, sans casser le tunnel de commande PrestaShop.
