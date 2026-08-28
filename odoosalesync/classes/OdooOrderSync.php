@@ -288,6 +288,39 @@ class OdooOrderSync
 
         $discountIncl = (float) $order->total_discounts_tax_incl;
 
+        // Une ligne par règle de réduction : deux bons de nature différente (un sur un produit
+        // à 5,5 %, un sur le port à 20 %) donnent, une fois agrégés par PrestaShop, un taux
+        // moyen qui ne correspond à aucune taxe Odoo. Pris séparément, chacun retrouve la sienne.
+        $lines = [];
+
+        foreach ($order->getCartRules() as $rule) {
+            $ruleIncl = round((float) $rule['value'], 2);
+            $ruleExcl = round((float) $rule['value_tax_excl'], 2);
+
+            if ($ruleIncl <= 0 && $ruleExcl <= 0) {
+                continue;
+            }
+
+            $lines[] = [0, 0, array_merge(
+                [
+                    'product_id' => $odooProduct['id'],
+                    'name' => trim((string) $rule['name']) !== '' ? $rule['name'] : 'Remise',
+                    'product_uom_qty' => 1,
+                ],
+                $this->lineTaxValues(
+                    $this->effectiveRate($ruleExcl, $ruleIncl),
+                    $odooProduct['taxes'],
+                    -$ruleExcl,
+                    -$ruleIncl
+                )
+            )];
+        }
+
+        if ($lines) {
+            return $lines;
+        }
+
+        // Remise sans règle rattachée (saisie manuelle sur la commande) : on retombe sur le total.
         return [[0, 0, array_merge(
             [
                 'product_id' => $odooProduct['id'],
@@ -322,15 +355,17 @@ class OdooOrderSync
      * (price_include, affichée « INC » dans l'interface) considère que le prix saisi contient
      * déjà la TVA. Lui transmettre un prix HT ferait tomber le total sur le montant hors taxes.
      *
-     * Si aucune taxe ne correspond au taux, on n'impose rien : Odoo applique la fiscalité de
-     * l'article, et l'éventuel écart est détecté par le contrôle du TTC.
+     * Si aucune taxe ne correspond au taux, on n'impose rien : Odoo applique alors la fiscalité
+     * de l'article. Le prix est malgré tout aligné sur le mode de ces taxes-là, faute de quoi un
+     * article en TTC inclus recevrait un prix HT et le total serait faux sans raison apparente.
+     * L'éventuel écart restant est détecté par le contrôle du TTC.
      */
     private function lineTaxValues($rate, array $productTaxIds, $priceExcl, $priceIncl)
     {
         $tax = $this->resolveTax($rate, $productTaxIds);
 
         if (!$tax) {
-            return ['price_unit' => $priceExcl];
+            return ['price_unit' => $this->productTaxesIncludePrice($productTaxIds) ? $priceIncl : $priceExcl];
         }
 
         return [
@@ -339,6 +374,22 @@ class OdooOrderSync
             // antérieures) — un mauvais nom déclenche "Invalid field ... on model sale.order.line".
             'tax_ids' => [[6, 0, [(int) $tax['id']]]],
         ];
+    }
+
+    /**
+     * Indique si les taxes de vente de l'article sont en mode « prix TTC inclus ».
+     * Sert à choisir le prix à transmettre quand aucune taxe n'est imposée explicitement :
+     * Odoo appliquera ces taxes-là, il faut donc lui parler dans la même unité.
+     */
+    private function productTaxesIncludePrice(array $productTaxIds)
+    {
+        foreach ($this->readTaxes($productTaxIds) as $tax) {
+            if (!empty($tax['price_include'])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

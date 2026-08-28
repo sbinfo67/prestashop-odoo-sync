@@ -146,7 +146,7 @@ Le montant qui compte est celui réellement encaissé par le prestataire de paie
 | --- | --- | --- |
 | Produits | prix unitaire HT + taux de TVA de la ligne | ligne article, taxe imposée explicitement |
 | Frais de port | `total_shipping_tax_excl` | article de service dédié (référence à configurer) |
-| Remises / bons | `total_discounts_tax_excl` | article de service dédié, en montant **négatif** |
+| Remises / bons | une ligne **par bon de réduction** | article de service dédié, en montant **négatif** |
 
 **Comment la TVA PrestaShop est reliée à celle d'Odoo**
 

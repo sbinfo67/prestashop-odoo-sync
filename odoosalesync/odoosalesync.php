@@ -12,7 +12,7 @@ class Odoosalesync extends Module
     {
         $this->name = 'odoosalesync';
         $this->tab = 'administration';
-        $this->version = '1.5.0';
+        $this->version = '1.5.1';
         $this->author = 'SBINFO';
         $this->need_instance = 0;
         $this->bootstrap = true;
