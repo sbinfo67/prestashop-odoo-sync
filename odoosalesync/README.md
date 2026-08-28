@@ -289,7 +289,9 @@ Une colonne **Odoo** est ajoutée à la liste des commandes de PrestaShop, avec 
 
 Le pictogramme renvoie au journal de synchronisation.
 
-> Après mise à jour du module, videz le cache de PrestaShop (`php bin/console cache:clear`) : la définition de la liste des commandes y est mise en cache, et la colonne n'apparaîtrait pas.
+> La définition de la liste des commandes est mise en cache par PrestaShop : la colonne n'apparaît qu'une fois ce cache vidé. **Le module s'en charge automatiquement lors de la mise à jour**, aucune manipulation n'est nécessaire.
+>
+> Si la colonne manque malgré tout, le bouton **Vider le cache PrestaShop** de l'écran de configuration fait la même chose en un clic. En dernier recours : Paramètres avancés > Performances > Vider le cache, ou `php bin/console cache:clear` en ligne de commande.
 
 ## Alerte par email
 

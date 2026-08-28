@@ -14,7 +14,14 @@ function upgrade_module_1_9_0($module)
         Configuration::updateValue('ODOOSALESYNC_ALERT_LAST', 0);
     }
 
-    return $module->registerHook('actionOrderGridDefinitionModifier')
+    $registered = $module->registerHook('actionOrderGridDefinitionModifier')
         && $module->registerHook('actionOrderGridQueryBuilderModifier')
         && $module->registerHook('actionOrderGridDataModifier');
+
+    // La définition de la liste des commandes est mise en cache : sans ce vidage, la colonne
+    // n'apparaîtrait qu'après une intervention manuelle.
+    require_once _PS_MODULE_DIR_ . 'odoosalesync/classes/OdooOrderSync.php';
+    OdooOrderSync::clearCache();
+
+    return $registered;
 }

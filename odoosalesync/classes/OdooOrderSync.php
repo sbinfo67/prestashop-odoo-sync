@@ -1196,6 +1196,34 @@ class OdooOrderSync
     }
 
     /**
+     * Vide le cache de PrestaShop (Symfony et Smarty).
+     *
+     * La liste des commandes met sa définition en cache : sans ce vidage, la colonne Odoo
+     * n'apparaît pas après une mise à jour. On évite ainsi d'imposer une commande shell.
+     *
+     * @return bool
+     */
+    public static function clearCache()
+    {
+        try {
+            $container = PrestaShop\PrestaShop\Adapter\SymfonyContainer::getInstance();
+
+            if ($container !== null && $container->has('prestashop.adapter.cache.clearer.symfony_cache_clearer')) {
+                $container->get('prestashop.adapter.cache.clearer.symfony_cache_clearer')->clear();
+                Tools::clearSmartyCache();
+
+                return true;
+            }
+
+            Tools::clearAllCache();
+
+            return true;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
      * Envoie, si nécessaire, un récapitulatif des commandes en erreur.
      *
      * Un délai minimal sépare deux envois : une panne d'Odoo fait échouer toutes les commandes,

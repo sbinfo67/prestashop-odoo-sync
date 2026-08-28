@@ -46,6 +46,8 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
             $this->testConnection();
         } elseif (Tools::isSubmit('submitOdooSyncNow')) {
             $this->syncNow();
+        } elseif (Tools::isSubmit('submitOdooSyncClearCache')) {
+            $this->clearCache();
         } elseif (Tools::isSubmit('submitOdooSyncSettings')) {
             $this->saveSettings();
         }
@@ -162,6 +164,28 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
                 $limit
             );
         }
+    }
+
+    /**
+     * Évite d'avoir à lancer « php bin/console cache:clear » en ligne de commande.
+     */
+    protected function clearCache()
+    {
+        if (OdooOrderSync::clearCache()) {
+            $this->confirmations[] = $this->trans(
+                'Cache de PrestaShop vidé. Rechargez la liste des commandes pour voir la colonne Odoo.',
+                [],
+                'Modules.Odoosalesync.Admin'
+            );
+
+            return;
+        }
+
+        $this->errors[] = $this->trans(
+            'Le cache n\'a pas pu être vidé. Utilisez Paramètres avancés > Performances > Vider le cache.',
+            [],
+            'Modules.Odoosalesync.Admin'
+        );
     }
 
     protected function testConnection()
@@ -337,6 +361,13 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
                         'name' => 'submitOdooSyncTest',
                         'type' => 'submit',
                         'icon' => 'process-icon-refresh',
+                        'class' => 'btn btn-default pull-right',
+                    ],
+                    [
+                        'title' => $this->trans('Vider le cache PrestaShop', [], 'Modules.Odoosalesync.Admin'),
+                        'name' => 'submitOdooSyncClearCache',
+                        'type' => 'submit',
+                        'icon' => 'process-icon-eraser',
                         'class' => 'btn btn-default pull-right',
                     ],
                     [
