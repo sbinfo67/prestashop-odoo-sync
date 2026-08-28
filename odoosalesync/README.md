@@ -6,7 +6,7 @@ Module PrestaShop 8/9 qui crée automatiquement une commande de vente (`sale.ord
 
 1. À chaque fois qu'une commande PrestaShop atteint un état de paiement accepté (hook `actionPaymentConfirmation`), le module :
    - recherche le client dans Odoo par email ; s'il n'existe pas, le crée (nom, email, adresse, téléphone, pays) ;
-   - retrouve chaque produit de la commande dans Odoo par sa référence (`product.product.default_code` = référence PrestaShop) ;
+   - retrouve chaque produit de la commande dans Odoo par sa référence (`product.product.default_code` = référence PrestaShop, comparaison **sensible à la casse**) ;
    - crée une commande `sale.order` avec ces lignes, et la confirme automatiquement (option désactivable) ;
    - enregistre le résultat dans une table de suivi (`ps_odoosync_order`), visible dans **Modules > Synchronisation Odoo > Journal**.
 2. Toute erreur (Odoo injoignable, produit non mappé, etc.) est capturée : **le paiement du client n'est jamais bloqué**. L'erreur est journalisée et peut être corrigée puis rejouée manuellement, ou rattrapée automatiquement par le cron.
@@ -174,14 +174,35 @@ La cause la plus fréquente est un taux de TVA présent dans PrestaShop mais abs
 
 > Le module ne « force » jamais le TTC en recalculant le prix HT à rebours. Le total correspondrait, mais la ventilation HT/TVA serait fausse — donc la déclaration de TVA également. L'écart est signalé pour être corrigé à la source, dans la configuration fiscale.
 
-**Articles de service à créer dans Odoo**
+**Articles de service pour le port et les remises**
 
-Créez deux articles de type *service* et renseignez leurs références internes (`default_code`) dans la configuration du module :
+Le module a besoin de deux articles Odoo de type *service*, dont vous renseignez les références internes (`default_code`) dans sa configuration :
 
-- un article pour les **frais de port** (ex. `SHIPPING`) ;
-- un article pour les **remises** (ex. `DISCOUNT`), si la boutique utilise des bons de réduction.
+- un article pour les **frais de port** ;
+- un article pour les **remises**, si la boutique utilise des bons de réduction.
 
-Si la référence n'est pas renseignée, l'élément correspondant n'est pas transmis — le total Odoo sera alors inférieur au montant encaissé, et l'écart signalé.
+Inutile d'en créer de nouveaux si votre Odoo en possède déjà (l'article « Livraison » du module Odoo de livraison, par exemple) : relevez simplement leur référence interne existante et reportez-la dans le module. Seul cas nécessitant une intervention dans Odoo : un article **sans référence interne** — le module ne peut pas le retrouver, il faut donc lui en attribuer une (champ libre, sans incidence comptable).
+
+**La taxe portée par ces articles est celle qui sera appliquée** à la ligne de port ou de remise. Vérifiez donc qu'elle correspond bien à la TVA de vos frais de livraison.
+
+Pour lister vos articles de service avec leur référence et leur taxe, dans un shell Odoo :
+
+```python
+for p in env['product.product'].search([('type', '=', 'service')]):
+    print("%-20s | %-35s | %s" % (
+        p.default_code or '(AUCUNE REFERENCE)',
+        p.name,
+        ', '.join(t.name for t in p.taxes_id) or '(aucune taxe)'
+    ))
+```
+
+Si la référence n'est pas renseignée dans le module, l'élément correspondant n'est pas transmis — le total Odoo sera alors inférieur au montant encaissé, et l'écart signalé.
+
+### Les références sont sensibles à la casse
+
+Le rapprochement des articles se fait par **égalité stricte** sur `default_code` : `livraison`, `Livraison` et `LIVRAISON` sont trois références différentes. Cela vaut aussi bien pour les articles de port et de remise que pour les **produits du catalogue**.
+
+Recopiez donc la référence telle qu'elle apparaît dans Odoo, sans changer la casse ni ajouter d'espace. Une casse divergente produit exactement la même erreur qu'une référence absente : `Aucun produit Odoo trouvé pour la référence "..."`, ou l'article de port introuvable.
 
 ## Lancer une synchronisation manuelle
 
