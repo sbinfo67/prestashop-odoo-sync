@@ -12,7 +12,7 @@ class Odoosalesync extends Module
     {
         $this->name = 'odoosalesync';
         $this->tab = 'administration';
-        $this->version = '1.8.1';
+        $this->version = '1.9.0';
         $this->author = 'SBINFO';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -32,6 +32,9 @@ class Odoosalesync extends Module
         return parent::install()
             && $this->registerHook('actionPaymentConfirmation')
             && $this->registerHook('actionOrderStatusPostUpdate')
+            && $this->registerHook('actionOrderGridDefinitionModifier')
+            && $this->registerHook('actionOrderGridQueryBuilderModifier')
+            && $this->registerHook('actionOrderGridDataModifier')
             && $this->installTabs()
             && Configuration::updateValue('ODOOSALESYNC_URL', '')
             && Configuration::updateValue('ODOOSALESYNC_DB', '')
@@ -43,6 +46,9 @@ class Odoosalesync extends Module
             && Configuration::updateValue('ODOOSALESYNC_PAYMENT_TERM', '')
             && Configuration::updateValue('ODOOSALESYNC_PAYMENT_TERM_ID', 0)
             && Configuration::updateValue('ODOOSALESYNC_STATES_FULL', '')
+            && Configuration::updateValue('ODOOSALESYNC_ALERT_EMAIL', (string) Configuration::get('PS_SHOP_EMAIL'))
+            && Configuration::updateValue('ODOOSALESYNC_ALERT_DELAY', 60)
+            && Configuration::updateValue('ODOOSALESYNC_ALERT_LAST', 0)
             && Configuration::updateValue('ODOOSALESYNC_INVOICE_POST', 1)
             && Configuration::updateValue('ODOOSALESYNC_SHIPPING_REF', '')
             && Configuration::updateValue('ODOOSALESYNC_DISCOUNT_REF', '')
@@ -66,6 +72,9 @@ class Odoosalesync extends Module
             && Configuration::deleteByName('ODOOSALESYNC_PAYMENT_TERM')
             && Configuration::deleteByName('ODOOSALESYNC_PAYMENT_TERM_ID')
             && Configuration::deleteByName('ODOOSALESYNC_STATES_FULL')
+            && Configuration::deleteByName('ODOOSALESYNC_ALERT_EMAIL')
+            && Configuration::deleteByName('ODOOSALESYNC_ALERT_DELAY')
+            && Configuration::deleteByName('ODOOSALESYNC_ALERT_LAST')
             && Configuration::deleteByName('ODOOSALESYNC_INVOICE_POST')
             && Configuration::deleteByName('ODOOSALESYNC_SHIPPING_REF')
             && Configuration::deleteByName('ODOOSALESYNC_DISCOUNT_REF')
@@ -128,6 +137,102 @@ class Odoosalesync extends Module
         Tools::redirectAdmin(
             $this->context->link->getAdminLink('AdminOdooSyncSettings')
         );
+    }
+
+    /**
+     * Ajoute une colonne « Odoo » à la liste des commandes.
+     * La grille est gérée par Symfony : la colonne se déclare ici, les données sont jointes
+     * par actionOrderGridQueryBuilderModifier et mises en forme par actionOrderGridDataModifier.
+     */
+    public function hookActionOrderGridDefinitionModifier($params)
+    {
+        $columns = $params['definition']->getColumns();
+
+        // « actions » est la dernière colonne de la grille des commandes : on se place juste
+        // avant. Viser une colonne inexistante fait échouer l'ajout sans message.
+        $columns->addBefore(
+            'actions',
+            (new PrestaShop\PrestaShop\Core\Grid\Column\Type\Common\HtmlColumn('odoosync'))
+                ->setName($this->l('Odoo'))
+                ->setOptions(['field' => 'odoosync_html', 'clickable' => false])
+        );
+    }
+
+    /**
+     * Joint le journal de synchronisation à la requête de la liste des commandes.
+     */
+    public function hookActionOrderGridQueryBuilderModifier($params)
+    {
+        foreach (['search_query_builder', 'count_query_builder'] as $key) {
+            if (empty($params[$key])) {
+                continue;
+            }
+
+            $params[$key]->leftJoin(
+                'o',
+                _DB_PREFIX_ . 'odoosync_order',
+                'odoosync',
+                'odoosync.id_order = o.id_order'
+            );
+        }
+
+        if (!empty($params['search_query_builder'])) {
+            $params['search_query_builder']->addSelect(
+                'odoosync.status AS odoosync_status,
+                 odoosync.picking_status AS odoosync_picking_status,
+                 odoosync.invoice_status AS odoosync_invoice_status'
+            );
+        }
+    }
+
+    /**
+     * Construit l'icône affichée dans la colonne, cliquable vers le journal.
+     */
+    public function hookActionOrderGridDataModifier($params)
+    {
+        $data = $params['data'];
+        $records = $data->getRecords()->all();
+        $journalUrl = $this->context->link->getAdminLink('AdminOdooSyncLog');
+
+        foreach ($records as $index => $record) {
+            $records[$index]['odoosync_html'] = $this->renderOrderGridBadge($record, $journalUrl);
+        }
+
+        $params['data'] = new PrestaShop\PrestaShop\Core\Grid\Data\GridData(
+            new PrestaShop\PrestaShop\Core\Grid\Record\RecordCollection($records),
+            $data->getRecordsTotal(),
+            $data->getQuery()
+        );
+    }
+
+    /**
+     * Un pictogramme par état : erreur, synchro complète, partielle, ou jamais synchronisée.
+     */
+    protected function renderOrderGridBadge(array $record, $journalUrl)
+    {
+        $status = $record['odoosync_status'] ?? null;
+        $steps = [$record['odoosync_picking_status'] ?? null, $record['odoosync_invoice_status'] ?? null];
+
+        if (!$status) {
+            return '<span class="text-muted" title="' . htmlspecialchars($this->l('Jamais synchronisée avec Odoo')) . '">–</span>';
+        }
+
+        if ($status === 'error' || in_array('error', $steps, true)) {
+            $label = $this->l('Erreur de synchronisation Odoo — voir le journal');
+            $icon = 'icon-warning-sign';
+            $color = '#c62828';
+        } elseif (in_array('success', $steps, true)) {
+            $label = $this->l('Synchronisée dans Odoo (livraison et/ou facture traitées)');
+            $icon = 'icon-check-circle';
+            $color = '#2e7d32';
+        } else {
+            $label = $this->l('Commande synchronisée dans Odoo');
+            $icon = 'icon-check';
+            $color = '#2e7d32';
+        }
+
+        return '<a href="' . htmlspecialchars($journalUrl) . '" title="' . htmlspecialchars($label) . '"'
+            . ' style="color:' . $color . '"><i class="' . $icon . '"></i></a>';
     }
 
     /**

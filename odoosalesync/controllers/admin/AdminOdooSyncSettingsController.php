@@ -80,6 +80,14 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
             Configuration::updateValue('ODOOSALESYNC_PAYMENT_TERM', trim((string) Tools::getValue('ODOOSALESYNC_PAYMENT_TERM')));
         }
         Configuration::updateValue('ODOOSALESYNC_INVOICE_POST', (int) Tools::getValue('ODOOSALESYNC_INVOICE_POST'));
+        Configuration::updateValue('ODOOSALESYNC_ALERT_DELAY', max(0, (int) Tools::getValue('ODOOSALESYNC_ALERT_DELAY')));
+
+        $alertEmail = trim((string) Tools::getValue('ODOOSALESYNC_ALERT_EMAIL'));
+        if ($alertEmail === '' || Validate::isEmail($alertEmail)) {
+            Configuration::updateValue('ODOOSALESYNC_ALERT_EMAIL', $alertEmail);
+        } else {
+            $this->errors[] = $this->trans('Adresse d\'alerte invalide. Valeur non modifiée.', [], 'Modules.Odoosalesync.Admin');
+        }
 
         $fullStates = array_values(array_filter(array_map('intval', (array) Tools::getValue('ODOOSALESYNC_STATES_FULL'))));
         Configuration::updateValue('ODOOSALESYNC_STATES_FULL', implode(',', $fullStates));
@@ -294,6 +302,20 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
                         ],
                     ],
                     [
+                        'type' => 'text',
+                        'label' => $this->trans('Email d\'alerte', [], 'Modules.Odoosalesync.Admin'),
+                        'name' => 'ODOOSALESYNC_ALERT_EMAIL',
+                        'desc' => $this->trans('Adresse prévenue par le cron lorsqu\'il reste des commandes en erreur. Laisser vide pour désactiver les alertes.', [], 'Modules.Odoosalesync.Admin'),
+                        'class' => 'fixed-width-xxl',
+                    ],
+                    [
+                        'type' => 'text',
+                        'label' => $this->trans('Délai minimal entre deux alertes (minutes)', [], 'Modules.Odoosalesync.Admin'),
+                        'name' => 'ODOOSALESYNC_ALERT_DELAY',
+                        'desc' => $this->trans('Évite l\'inondation : une panne d\'Odoo met toutes les commandes en erreur, mais ne déclenche qu\'un email par période. 0 pour envoyer à chaque passage du cron.', [], 'Modules.Odoosalesync.Admin'),
+                        'class' => 'fixed-width-sm',
+                    ],
+                    [
                         'type' => 'html',
                         'name' => 'cron_info',
                         'label' => $this->trans('Cron de rattrapage', [], 'Modules.Odoosalesync.Admin'),
@@ -424,6 +446,8 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
             'ODOOSALESYNC_PAYMENT_TERM' => Tools::getValue('ODOOSALESYNC_PAYMENT_TERM', Configuration::get('ODOOSALESYNC_PAYMENT_TERM')),
             'ODOOSALESYNC_PAYMENT_TERM_ID' => (int) Configuration::get('ODOOSALESYNC_PAYMENT_TERM_ID'),
             'ODOOSALESYNC_INVOICE_POST' => (int) Configuration::get('ODOOSALESYNC_INVOICE_POST'),
+            'ODOOSALESYNC_ALERT_EMAIL' => Tools::getValue('ODOOSALESYNC_ALERT_EMAIL', Configuration::get('ODOOSALESYNC_ALERT_EMAIL')),
+            'ODOOSALESYNC_ALERT_DELAY' => (int) Configuration::get('ODOOSALESYNC_ALERT_DELAY'),
             'ODOOSALESYNC_SHIPPING_REF' => Tools::getValue('ODOOSALESYNC_SHIPPING_REF', Configuration::get('ODOOSALESYNC_SHIPPING_REF')),
             'ODOOSALESYNC_DISCOUNT_REF' => Tools::getValue('ODOOSALESYNC_DISCOUNT_REF', Configuration::get('ODOOSALESYNC_DISCOUNT_REF')),
         ];

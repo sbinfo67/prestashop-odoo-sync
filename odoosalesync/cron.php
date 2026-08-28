@@ -59,3 +59,7 @@ try {
 } catch (Throwable $e) {
     echo 'Récupération des numéros impossible : ' . $e->getMessage() . "\n";
 }
+
+// Alerte récapitulative : un seul email par période, quel que soit le nombre d'erreurs.
+$alert = OdooOrderSync::notifyErrors();
+echo sprintf("Alerte : %d commande(s) en erreur, %s.\n", $alert['count'], $alert['reason']);

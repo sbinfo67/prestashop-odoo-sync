@@ -276,6 +276,31 @@ Chaque étape est ignorée si elle a déjà réussi : relancer la chaîne est do
 - La commande Odoo porte la **date réelle de la commande PrestaShop**. Odoo réinitialise cette date lors de la confirmation ; le module la rétablit ensuite, faute de quoi tout un historique se retrouverait daté du jour de la reprise.
 - La facture, elle, est datée du **jour de la synchronisation**, date comptable comprise. C'est volontaire : antidater une facture ferait entrer des écritures dans une période potentiellement déjà déclarée. L'échéance court donc à partir de la date de reprise.
 
+## Suivi depuis la liste des commandes
+
+Une colonne **Odoo** est ajoutée à la liste des commandes de PrestaShop, avec un pictogramme par état :
+
+| Pictogramme | Signification |
+| --- | --- |
+| coche verte | commande synchronisée dans Odoo |
+| coche cerclée verte | livraison et/ou facture également traitées |
+| triangle rouge | erreur — cliquez pour ouvrir le journal |
+| tiret gris | commande jamais synchronisée |
+
+Le pictogramme renvoie au journal de synchronisation.
+
+> Après mise à jour du module, videz le cache de PrestaShop (`php bin/console cache:clear`) : la définition de la liste des commandes y est mise en cache, et la colonne n'apparaîtrait pas.
+
+## Alerte par email
+
+Le cron envoie un **récapitulatif** des commandes en erreur à l'adresse configurée, avec un **délai minimal entre deux envois** (60 minutes par défaut).
+
+Ce fonctionnement est délibéré : une indisponibilité d'Odoo met toutes les commandes en erreur, et une alerte par commande inonderait la boîte au moment précis où l'on a besoin d'y voir clair. Un seul message récapitule l'ensemble.
+
+- Laisser l'adresse **vide** désactive les alertes.
+- Un délai de **0** envoie un message à chaque passage du cron ayant des erreurs.
+- L'horodatage n'est mis à jour qu'en cas d'envoi réussi : si le mail échoue, la tentative sera refaite au passage suivant.
+
 ## Lancer une synchronisation manuelle
 
 Le bouton **Synchroniser maintenant**, sur l'écran de configuration, traite les commandes payées en attente (jamais synchronisées, ou en erreur) depuis la date de début. Utile pour :

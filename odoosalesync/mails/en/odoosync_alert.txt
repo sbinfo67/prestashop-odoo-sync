@@ -1,0 +1,10 @@
+Synchronisation Odoo : {count} commande(s) en erreur
+
+Boutique : {shop_name}
+
+{errors_txt}
+
+Consultez le journal de synchronisation pour le détail et relancer les commandes concernées :
+{journal_url}
+
+Ce message est envoyé au plus une fois toutes les {delay} minutes, tant que des erreurs subsistent.

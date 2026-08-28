@@ -1196,6 +1196,104 @@ class OdooOrderSync
     }
 
     /**
+     * Envoie, si nécessaire, un récapitulatif des commandes en erreur.
+     *
+     * Un délai minimal sépare deux envois : une panne d'Odoo fait échouer toutes les commandes,
+     * et une alerte par erreur inonderait la boîte au moment où l'on a besoin d'y voir clair.
+     *
+     * @return array{sent:bool,count:int,reason:string}
+     */
+    public static function notifyErrors()
+    {
+        $email = trim((string) Configuration::get('ODOOSALESYNC_ALERT_EMAIL'));
+
+        if ($email === '' || !Validate::isEmail($email)) {
+            return ['sent' => false, 'count' => 0, 'reason' => 'alerte désactivée (aucune adresse valide)'];
+        }
+
+        $rows = Db::getInstance()->executeS(
+            'SELECT id_order, status, picking_status, invoice_status, message, picking_message, invoice_message
+             FROM `' . _DB_PREFIX_ . 'odoosync_order`
+             WHERE status = "error" OR picking_status = "error" OR invoice_status = "error"
+             ORDER BY id_order DESC
+             LIMIT 50'
+        ) ?: [];
+
+        if (empty($rows)) {
+            return ['sent' => false, 'count' => 0, 'reason' => 'aucune erreur'];
+        }
+
+        $delay = max(0, (int) Configuration::get('ODOOSALESYNC_ALERT_DELAY'));
+        $last = (int) Configuration::get('ODOOSALESYNC_ALERT_LAST');
+
+        if ($delay > 0 && $last && (time() - $last) < $delay * 60) {
+            return [
+                'sent' => false,
+                'count' => count($rows),
+                'reason' => 'délai entre deux alertes non écoulé',
+            ];
+        }
+
+        $txt = '';
+        $html = '<ul>';
+
+        foreach ($rows as $row) {
+            $reason = trim((string) ($row['message'] ?: ($row['picking_message'] ?: $row['invoice_message'])));
+            $step = $row['status'] === 'error'
+                ? 'commande'
+                : ($row['picking_status'] === 'error' ? 'bon de livraison' : 'facture');
+
+            $line = sprintf('Commande #%d (%s) : %s', (int) $row['id_order'], $step, $reason);
+            $txt .= $line . "\n";
+            $html .= '<li><strong>Commande #' . (int) $row['id_order'] . '</strong> (' . htmlspecialchars($step) . ') : '
+                . htmlspecialchars($reason) . '</li>';
+        }
+
+        $html .= '</ul>';
+
+        $sent = Mail::Send(
+            (int) Configuration::get('PS_LANG_DEFAULT'),
+            'odoosync_alert',
+            'Synchronisation Odoo : ' . count($rows) . ' commande(s) en erreur',
+            [
+                '{count}' => count($rows),
+                '{shop_name}' => Configuration::get('PS_SHOP_NAME'),
+                '{errors_txt}' => $txt,
+                '{errors_html}' => $html,
+                '{journal_url}' => self::journalUrl(),
+                '{delay}' => $delay,
+            ],
+            $email,
+            null,
+            null,
+            null,
+            null,
+            null,
+            _PS_MODULE_DIR_ . 'odoosalesync/mails/'
+        );
+
+        if ($sent) {
+            Configuration::updateValue('ODOOSALESYNC_ALERT_LAST', time());
+        }
+
+        return [
+            'sent' => (bool) $sent,
+            'count' => count($rows),
+            'reason' => $sent ? 'envoyée' : "échec de l'envoi (vérifiez la configuration e-mail de PrestaShop)",
+        ];
+    }
+
+    /**
+     * Adresse du journal, telle qu'utilisable depuis un email.
+     */
+    private static function journalUrl()
+    {
+        $base = rtrim((string) Configuration::get('PS_SHOP_DOMAIN_SSL') ?: (string) Configuration::get('PS_SHOP_DOMAIN'), '/');
+
+        return ($base ? 'https://' . $base : '') . __PS_BASE_URI__ . 'admin';
+    }
+
+    /**
      * Renseigne les numéros Odoo manquants dans le journal (commande, BL, facture).
      *
      * Les lignes anciennes, ou celles rattachées à un document existant sans que son numéro
