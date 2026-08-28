@@ -30,7 +30,9 @@ class OdooClient
 
     public function __construct($url, $db, $login, $apiKey)
     {
-        $this->url = rtrim((string) $url, '/');
+        // On attend l'URL de base d'Odoo, le point de terminaison /jsonrpc étant ajouté par call().
+        // Une URL saisie avec ce suffixe est tolérée, sinon on appellerait /jsonrpc/jsonrpc.
+        $this->url = rtrim(preg_replace('#/jsonrpc/*$#i', '', rtrim(trim((string) $url), '/')), '/');
         $this->db = (string) $db;
         $this->login = (string) $login;
         $this->apiKey = (string) $apiKey;
@@ -43,8 +45,15 @@ class OdooClient
             return $this->uid;
         }
 
-        if ($this->url === '' || $this->db === '' || $this->login === '' || $this->apiKey === '') {
-            throw new OdooClientException('Configuration Odoo incomplète (URL, base, login ou clé API manquant).');
+        $missing = [];
+        foreach (['URL' => $this->url, 'base de données' => $this->db, 'login' => $this->login, 'clé API' => $this->apiKey] as $label => $value) {
+            if ($value === '') {
+                $missing[] = $label;
+            }
+        }
+
+        if ($missing) {
+            throw new OdooClientException('Configuration Odoo incomplète, paramètre(s) manquant(s) : ' . implode(', ', $missing) . '.');
         }
 
         $result = $this->call('common', 'login', [$this->db, $this->login, $this->apiKey]);

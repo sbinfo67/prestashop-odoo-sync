@@ -58,17 +58,27 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
 
     protected function testConnection()
     {
+        // La clé saisie dans le formulaire prime : on doit pouvoir tester une nouvelle clé
+        // sans l'avoir enregistrée au préalable. Sinon, on retombe sur celle déjà stockée.
+        $apiKey = trim((string) Tools::getValue('ODOOSALESYNC_API_KEY'));
+        if ($apiKey === '') {
+            $apiKey = (string) Configuration::get('ODOOSALESYNC_API_KEY');
+        }
+
         try {
             $client = new OdooClient(
                 trim((string) Tools::getValue('ODOOSALESYNC_URL')),
                 trim((string) Tools::getValue('ODOOSALESYNC_DB')),
                 trim((string) Tools::getValue('ODOOSALESYNC_LOGIN')),
-                Configuration::get('ODOOSALESYNC_API_KEY')
+                $apiKey
             );
 
             $uid = $client->authenticate();
 
-            $this->confirmations[] = sprintf($this->trans('Connexion Odoo réussie (uid %d).', [], 'Modules.Odoosalesync.Admin'), $uid);
+            $this->confirmations[] = sprintf(
+                $this->trans('Connexion Odoo réussie (uid %d). Pensez à cliquer sur Enregistrer pour conserver ces paramètres.', [], 'Modules.Odoosalesync.Admin'),
+                $uid
+            );
         } catch (Throwable $e) {
             $this->errors[] = sprintf($this->trans('Échec de connexion à Odoo : %s', [], 'Modules.Odoosalesync.Admin'), $e->getMessage());
         }
