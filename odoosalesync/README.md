@@ -251,7 +251,7 @@ Ces deux étapes apparaissent dans le journal, colonnes **BL Odoo** et **Facture
 
 Lors de la première synchronisation d'une boutique en production, les commandes passées sont souvent déjà livrées. Valider leur bon de livraison puis créer leur facture une par une dans Odoo serait interminable.
 
-Le champ **Statuts déclenchant le cycle complet** répond à ce cas : une commande dont le statut PrestaShop figure dans cette liste (typiquement *Livré*) enchaîne **commande, bon de livraison et facture** en une seule passe, via le bouton *Synchroniser maintenant* ou le cron.
+Le champ **Statuts déclenchant le cycle complet** répond à ce cas : une liste à choix multiples (Ctrl+clic pour en sélectionner plusieurs) où une commande dont le statut PrestaShop figure (typiquement *Livré*) enchaîne **commande, bon de livraison et facture** en une seule passe, via le bouton *Synchroniser maintenant* ou le cron.
 
 Le rattrapage reprend aussi les commandes **déjà synchronisées** dont il reste une étape à faire : celles envoyées dans Odoo avant l'activation de la livraison et de la facturation ne sont pas laissées de côté. Aucune commande Odoo n'est recréée au passage.
 
