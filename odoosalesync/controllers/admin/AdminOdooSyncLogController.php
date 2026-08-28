@@ -202,11 +202,31 @@ class AdminOdooSyncLogController extends ModuleAdminController
                 . $this->trans('Sans objet', [], 'Modules.Odoosalesync.Admin') . '</span>';
         }
 
-        $label = $name !== null && $name !== '' ? $name : sprintf($this->trans('id %d', [], 'Modules.Odoosalesync.Admin'), $idRecord);
+        if ($name !== null && $name !== '' && $name !== '/') {
+            $label = $name;
+            $title = '';
+        } elseif ($model === 'account.move') {
+            // Dans Odoo, une facture ne reçoit son numéro qu'à la validation : sans numéro,
+            // elle est nécessairement en brouillon.
+            $label = $this->trans('Brouillon', [], 'Modules.Odoosalesync.Admin');
+            $title = $this->trans(
+                'La facture n\'est pas encore validée dans Odoo, elle n\'a donc pas de numéro. '
+                . 'Il sera récupéré automatiquement après validation, au passage du cron ou via le '
+                . 'bouton « Récupérer les numéros Odoo manquants ».',
+                [],
+                'Modules.Odoosalesync.Admin'
+            );
+        } else {
+            $label = sprintf($this->trans('id %d', [], 'Modules.Odoosalesync.Admin'), $idRecord);
+            $title = '';
+        }
+
         $url = $this->odooUrl($model, $idRecord);
 
         return $url
-            ? '<a href="' . htmlspecialchars($url) . '" target="_blank" rel="noopener">' . htmlspecialchars($label) . '</a>'
+            ? '<a href="' . htmlspecialchars($url) . '" target="_blank" rel="noopener"'
+                . ($title ? ' title="' . htmlspecialchars($title) . '"' : '') . '>'
+                . htmlspecialchars($label) . '</a>'
             : htmlspecialchars($label);
     }
 

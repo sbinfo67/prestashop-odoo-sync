@@ -42,3 +42,20 @@ echo sprintf(
     $result['failed'],
     $result['total']
 );
+
+// Une facture n'a de numéro qu'une fois validée dans Odoo : si elle l'est entre-temps,
+// le journal se complète tout seul au passage suivant du cron.
+try {
+    $filled = (new OdooOrderSync())->backfillNames();
+
+    if (array_sum($filled)) {
+        echo sprintf(
+            "Numéros Odoo récupérés : %d commande(s), %d bon(s) de livraison, %d facture(s).\n",
+            $filled['order'],
+            $filled['picking'],
+            $filled['invoice']
+        );
+    }
+} catch (Throwable $e) {
+    echo 'Récupération des numéros impossible : ' . $e->getMessage() . "\n";
+}
