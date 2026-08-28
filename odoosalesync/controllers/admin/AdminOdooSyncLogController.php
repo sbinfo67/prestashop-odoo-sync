@@ -290,13 +290,19 @@ class AdminOdooSyncLogController extends ModuleAdminController
         $sync = new OdooOrderSync();
         $success = 0;
         $failed = 0;
+        $noStep = 0;
 
         foreach ($idOrders as $idOrder) {
             try {
                 // La chaîne complète est rejouée : les étapes déjà réussies sont ignorées,
                 // celles en échec reprennent — un stock corrigé permet d'aller jusqu'à la facture.
-                $sync->syncPipeline($idOrder);
-                $success++;
+                $result = $sync->syncPipeline($idOrder);
+
+                if (isset($result['steps']) && empty($result['steps'])) {
+                    $noStep++;
+                } else {
+                    $success++;
+                }
             } catch (Throwable $e) {
                 $failed++;
             }
@@ -304,6 +310,20 @@ class AdminOdooSyncLogController extends ModuleAdminController
 
         if ($success) {
             $this->confirmations[] = sprintf($this->trans('%d commande(s) synchronisée(s) avec succès.', [], 'Modules.Odoosalesync.Admin'), $success);
+        }
+
+        if ($noStep) {
+            $this->warnings[] = sprintf(
+                $this->trans(
+                    '%d commande(s) sans étape à exécuter : leur statut PrestaShop ne figure dans aucun '
+                    . 'des statuts configurés (validation du BL, facture, cycle complet). '
+                    . 'Renseignez ces statuts dans la configuration du module pour que le bon de '
+                    . 'livraison et la facture soient traités.',
+                    [],
+                    'Modules.Odoosalesync.Admin'
+                ),
+                $noStep
+            );
         }
 
         if ($failed) {

@@ -245,7 +245,9 @@ Si Odoo est injoignable au moment d'afficher l'écran de configuration, le champ
 
 > La comptabilisation automatique peut être désactivée : la facture est alors créée en brouillon et vous la validez vous-même dans Odoo.
 
-Ces deux étapes apparaissent dans le journal, colonnes **BL Odoo** et **Facture Odoo**, avec le numéro Odoo cliquable. Une étape non encore déclenchée reste vide, ce qui la distingue d'un échec. Le bouton **Réessayer** rejoue l'étape en erreur, sans refaire celles déjà réussies.
+Ces deux étapes apparaissent dans le journal, colonnes **BL Odoo** et **Facture Odoo**, avec le numéro Odoo cliquable. Une étape non encore déclenchée reste vide (`—`), ce qui la distingue d'un échec.
+
+> Si une relance affiche « sans étape à exécuter » et que ces colonnes restent vides, c'est que le statut PrestaShop de la commande ne figure dans aucun des statuts configurés. C'est le cas typique de commandes en *Livré* alors que seuls *Préparation en cours* et *Expédié* sont renseignés : ajoutez *Livré* aux **statuts déclenchant le cycle complet**. Le bouton **Réessayer** rejoue l'étape en erreur, sans refaire celles déjà réussies.
 
 ## Reprise d'un historique déjà livré
 

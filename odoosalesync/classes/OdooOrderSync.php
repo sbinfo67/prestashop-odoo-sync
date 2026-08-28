@@ -137,9 +137,15 @@ class OdooOrderSync
             return $result;
         }
 
-        foreach ($this->stepsForOrder($idOrder) as $step) {
+        $steps = $this->stepsForOrder($idOrder);
+
+        foreach ($steps as $step) {
             $this->{$step}($idOrder);
         }
+
+        // Permet à l'appelant de distinguer un vrai traitement d'un passage sans effet,
+        // faute de statut configuré pour cette commande.
+        $result['steps'] = $steps;
 
         return $result;
     }
@@ -1211,6 +1217,7 @@ class OdooOrderSync
 
         $success = 0;
         $failed = 0;
+        $noStep = 0;
 
         foreach ($orders as $row) {
             try {
@@ -1225,14 +1232,19 @@ class OdooOrderSync
                     $context->currency = new Currency((int) $order->id_currency);
                 }
 
-                $sync->syncPipeline((int) $row['id_order']);
-                $success++;
+                $result = $sync->syncPipeline((int) $row['id_order']);
+
+                if (isset($result['steps']) && empty($result['steps'])) {
+                    $noStep++;
+                } else {
+                    $success++;
+                }
             } catch (Throwable $e) {
                 $failed++;
             }
         }
 
-        return ['success' => $success, 'failed' => $failed, 'total' => count($orders)];
+        return ['success' => $success, 'failed' => $failed, 'no_step' => $noStep, 'total' => count($orders)];
     }
 
     /**

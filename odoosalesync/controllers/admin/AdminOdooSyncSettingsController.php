@@ -128,6 +128,19 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
             );
         }
 
+        if (!empty($result['no_step'])) {
+            $this->warnings[] = sprintf(
+                $this->trans(
+                    '%d commande(s) sans étape à exécuter : leur statut PrestaShop ne figure dans aucun '
+                    . 'des statuts configurés ci-dessus. Sélectionnez-les pour que le bon de livraison '
+                    . 'et la facture soient traités.',
+                    [],
+                    'Modules.Odoosalesync.Admin'
+                ),
+                $result['no_step']
+            );
+        }
+
         if ($result['failed']) {
             $this->errors[] = sprintf(
                 $this->trans('%d commande(s) en échec : voir le détail dans le Journal de synchronisation.', [], 'Modules.Odoosalesync.Admin'),
