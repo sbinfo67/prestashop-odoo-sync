@@ -168,6 +168,15 @@ Le module s'y adapte ligne par ligne : il transmet le prix **TTC** quand la taxe
 
 > Sans cette adaptation, un prix HT transmis à une taxe « INC » serait interprété par Odoo comme un prix TTC : le total de la commande tomberait alors exactement sur le montant **hors taxes**, et l'écart signalé vaudrait la totalité de la TVA.
 
+**Listes de prix Odoo**
+
+Le module transmet toujours le prix effectivement pratiqué dans PrestaShop, ligne par ligne. Une **liste de prix** configurée dans Odoo (tarif e-commerce, remise par client, prix fixe par article…) **ne modifie pas** ces montants : Odoo ne recalcule le prix que lorsqu'il doit le déterminer lui-même, à la saisie manuelle. Un prix transmis explicitement l'emporte, même si la liste de prix est attachée à la commande et prévoit un autre montant.
+
+C'est le comportement recherché — le montant encaissé fait foi — mais deux conséquences en découlent :
+
+- vos listes de prix ne servent pas pour les commandes synchronisées, et un écart entre le tarif Odoo et le prix PrestaShop ne sera pas signalé ;
+- si vous **modifiez ensuite une ligne dans Odoo** (changement de quantité, par exemple), Odoo peut recalculer le prix à partir de la liste de prix et s'écarter du montant facturé.
+
 **Contrôle du total**
 
 Après création, le module compare le `amount_total` d'Odoo au `total_paid_tax_incl` de PrestaShop, avec une tolérance d'un centime. En cas d'écart :
