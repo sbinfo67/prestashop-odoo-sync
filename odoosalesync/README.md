@@ -158,7 +158,15 @@ Le rapprochement se fait sur le **taux**, mais en partant des taxes déjà confi
 
 Concrètement, si votre Odoo contient deux taxes à 20 % (une pour les biens, une pour les services), un article de biens reçoit la taxe « biens » et l'article de frais de port la taxe « services », automatiquement — sans table de correspondance à maintenir.
 
-Le **libellé** de la taxe Odoo n'a aucune importance : seul son champ *Montant* est comparé.
+Le **libellé** de la taxe Odoo n'a aucune importance : seul son champ *Montant* est comparé, à 0,05 point près. Cette marge absorbe les arrondis : le taux du port et des remises est déduit de montants déjà arrondis au centime (22,75 HT / 24,00 TTC donne 5,4945 % pour une TVA à 5,5 %), et les taux réels sont trop éloignés les uns des autres pour créer une confusion.
+
+**Taxes « prix TTC inclus »**
+
+Une taxe Odoo peut être configurée en *prix TTC inclus* (`price_include`, affichée **INC** dans l'interface) : le prix saisi sur l'article contient alors déjà la TVA. C'est fréquent en vente au détail et avec le Point de Vente.
+
+Le module s'y adapte ligne par ligne : il transmet le prix **TTC** quand la taxe retenue est en mode inclus, et le prix **HT** sinon. Les deux modes peuvent coexister dans une même commande — par exemple des produits en TVA « INC » et des frais de port en TVA hors taxes.
+
+> Sans cette adaptation, un prix HT transmis à une taxe « INC » serait interprété par Odoo comme un prix TTC : le total de la commande tomberait alors exactement sur le montant **hors taxes**, et l'écart signalé vaudrait la totalité de la TVA.
 
 **Contrôle du total**
 

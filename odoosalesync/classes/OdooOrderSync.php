@@ -17,7 +17,7 @@ class OdooOrderSync
     /** @var array<string,int|null> cache ISO country code => Odoo res.country id, pour la durée de la requête */
     private static $countryCache = [];
 
-    /** @var array<string,int|null> cache taux de TVA => Odoo account.tax id */
+    /** @var array<string,array|null> cache taux de TVA => enregistrement de taxe Odoo */
     private static $taxCache = [];
 
     /** @var array<int,array> cache identifiant de taxe => caractéristiques (taux, type) */
@@ -28,6 +28,14 @@ class OdooOrderSync
 
     /** Écart maximal toléré entre le TTC PrestaShop et le TTC Odoo, en devise de la commande. */
     const AMOUNT_TOLERANCE = 0.01;
+
+    /**
+     * Tolérance, en points de pourcentage, pour rapprocher un taux de TVA d'une taxe Odoo.
+     * Les taux du port et des remises sont déduits de montants déjà arrondis au centime :
+     * 22,75 HT / 24,00 TTC donne 5,4945 % pour une TVA à 5,5 %. Les taux réels étant séparés
+     * d'au moins 0,4 point (2,1 / 5,5 / 10 / 20), cette marge ne crée pas d'ambiguïté.
+     */
+    const RATE_TOLERANCE = 0.05;
 
     /** @var int|null identifiants créés lors de la tentative en cours, conservés en cas d'échec ultérieur */
     private $lastOdooOrder = null;
@@ -229,14 +237,20 @@ class OdooOrderSync
             );
         }
 
+        $shippingIncl = (float) $order->total_shipping_tax_incl;
+
         return [[0, 0, array_merge(
             [
                 'product_id' => $odooProduct['id'],
                 'name' => 'Frais de port',
                 'product_uom_qty' => 1,
-                'price_unit' => $shippingExcl,
             ],
-            $this->taxValues($this->effectiveRate($shippingExcl, (float) $order->total_shipping_tax_incl), $odooProduct['taxes'])
+            $this->lineTaxValues(
+                $this->effectiveRate($shippingExcl, $shippingIncl),
+                $odooProduct['taxes'],
+                $shippingExcl,
+                $shippingIncl
+            )
         )]];
     }
 
@@ -265,14 +279,20 @@ class OdooOrderSync
             );
         }
 
+        $discountIncl = (float) $order->total_discounts_tax_incl;
+
         return [[0, 0, array_merge(
             [
                 'product_id' => $odooProduct['id'],
                 'name' => 'Remise',
                 'product_uom_qty' => 1,
-                'price_unit' => -$discountExcl,
             ],
-            $this->taxValues($this->effectiveRate($discountExcl, (float) $order->total_discounts_tax_incl), $odooProduct['taxes'])
+            $this->lineTaxValues(
+                $this->effectiveRate($discountExcl, $discountIncl),
+                $odooProduct['taxes'],
+                -$discountExcl,
+                -$discountIncl
+            )
         )]];
     }
 
@@ -289,17 +309,29 @@ class OdooOrderSync
     }
 
     /**
-     * Valeurs de taxe à poser sur une ligne de commande Odoo.
-     * Si aucune taxe Odoo ne correspond au taux, on n'impose rien : Odoo applique la fiscalité
-     * du produit, et l'éventuel écart est détecté par le contrôle du TTC.
+     * Prix unitaire et taxe à poser sur une ligne de commande Odoo.
+     *
+     * Le prix envoyé dépend du mode de la taxe retenue : une taxe Odoo « prix TTC inclus »
+     * (price_include, affichée « INC » dans l'interface) considère que le prix saisi contient
+     * déjà la TVA. Lui transmettre un prix HT ferait tomber le total sur le montant hors taxes.
+     *
+     * Si aucune taxe ne correspond au taux, on n'impose rien : Odoo applique la fiscalité de
+     * l'article, et l'éventuel écart est détecté par le contrôle du TTC.
      */
-    private function taxValues($rate, array $productTaxIds = [])
+    private function lineTaxValues($rate, array $productTaxIds, $priceExcl, $priceIncl)
     {
-        $idTax = $this->resolveTax($rate, $productTaxIds);
+        $tax = $this->resolveTax($rate, $productTaxIds);
 
-        // Odoo 19 : le champ s'appelle tax_ids sur sale.order.line (tax_id dans les versions
-        // antérieures) — un mauvais nom déclenche "Invalid field ... on model sale.order.line".
-        return $idTax ? ['tax_ids' => [[6, 0, [$idTax]]]] : [];
+        if (!$tax) {
+            return ['price_unit' => $priceExcl];
+        }
+
+        return [
+            'price_unit' => !empty($tax['price_include']) ? $priceIncl : $priceExcl,
+            // Odoo 19 : le champ s'appelle tax_ids sur sale.order.line (tax_id dans les versions
+            // antérieures) — un mauvais nom déclenche "Invalid field ... on model sale.order.line".
+            'tax_ids' => [[6, 0, [(int) $tax['id']]]],
+        ];
     }
 
     /**
@@ -312,6 +344,8 @@ class OdooOrderSync
      *    l'écart éventuel est signalé par le contrôle des montants.
      *
      * @param array $productTaxIds identifiants des taxes de vente de l'article Odoo
+     *
+     * @return array|null enregistrement de taxe (id, amount, price_include...)
      */
     private function resolveTax($rate, array $productTaxIds)
     {
@@ -321,9 +355,9 @@ class OdooOrderSync
             return null;
         }
 
-        $idTax = $this->findTaxAmongProductTaxes($rate, $productTaxIds);
+        $tax = $this->findTaxAmongProductTaxes($rate, $productTaxIds);
 
-        return $idTax ?: $this->findTaxByRate($rate);
+        return $tax ?: $this->findTaxByRate($rate);
     }
 
     /**
@@ -340,8 +374,8 @@ class OdooOrderSync
                 continue;
             }
 
-            if (abs((float) $tax['amount'] - $rate) <= 0.001) {
-                return (int) $tax['id'];
+            if (abs((float) $tax['amount'] - $rate) <= self::RATE_TOLERANCE) {
+                return $tax;
             }
         }
 
@@ -360,7 +394,7 @@ class OdooOrderSync
             foreach ($this->client->searchRead(
                 'account.tax',
                 [['id', 'in', $missing]],
-                ['id', 'amount', 'amount_type', 'type_tax_use']
+                ['id', 'amount', 'amount_type', 'type_tax_use', 'price_include']
             ) as $tax) {
                 self::$taxDetailCache[(int) $tax['id']] = $tax;
             }
@@ -378,6 +412,8 @@ class OdooOrderSync
 
     /**
      * Recherche une taxe de vente Odoo au pourcentage donné, sans considération d'article.
+     *
+     * @return array|null
      */
     private function findTaxByRate($rate)
     {
@@ -397,14 +433,19 @@ class OdooOrderSync
         $result = $this->client->searchRead('account.tax', [
             ['type_tax_use', '=', 'sale'],
             ['amount_type', '=', 'percent'],
-            ['amount', '>=', $rate - 0.001],
-            ['amount', '<=', $rate + 0.001],
-        ], ['id'], 1);
+            ['amount', '>=', $rate - self::RATE_TOLERANCE],
+            ['amount', '<=', $rate + self::RATE_TOLERANCE],
+        ], ['id', 'amount', 'amount_type', 'type_tax_use', 'price_include'], 1);
 
-        $idTax = !empty($result) ? (int) $result[0]['id'] : null;
-        self::$taxCache[$key] = $idTax;
+        $tax = !empty($result) ? $result[0] : null;
 
-        return $idTax;
+        if ($tax) {
+            self::$taxDetailCache[(int) $tax['id']] = $tax;
+        }
+
+        self::$taxCache[$key] = $tax;
+
+        return $tax;
     }
 
     /**
@@ -454,9 +495,13 @@ class OdooOrderSync
                     'product_id' => $idOdooProduct,
                     'name' => $product['product_name'],
                     'product_uom_qty' => (float) $product['product_quantity'],
-                    'price_unit' => (float) $product['unit_price_tax_excl'],
                 ],
-                $this->taxValues($rate, $odooProduct['taxes'])
+                $this->lineTaxValues(
+                    $rate,
+                    $odooProduct['taxes'],
+                    (float) $product['unit_price_tax_excl'],
+                    (float) $product['unit_price_tax_incl']
+                )
             )];
         }
 
