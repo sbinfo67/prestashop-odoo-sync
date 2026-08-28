@@ -276,7 +276,15 @@ Les colonnes **Commande PrestaShop**, **Commande Odoo** et **Client Odoo** sont 
 
 > Ces liens utilisent l'**URL Odoo configurée dans le module**. Elle doit donc être joignable depuis le navigateur de l'administrateur, et pas seulement depuis le serveur PrestaShop — une adresse interne (`http://odoo:8069`) produirait des liens inutilisables.
 
-La colonne **Commande Odoo** affiche le numéro tel qu'il apparaît dans Odoo (ex. `S00513`), et non l'identifiant technique de la base — ce dernier ne permet pas de retrouver la commande depuis l'interface d'Odoo. Les lignes antérieures à la version 1.3.5 n'ont pas ce numéro et affichent `id 513` ; elles restent retrouvables dans Odoo en cherchant la **référence client**, où le module inscrit la référence de la commande PrestaShop. Un bouton "Réessayer" permet de relancer une commande en échec, et un bouton en haut de la liste permet de réessayer toutes les commandes en erreur d'un coup.
+La colonne **Commande Odoo** affiche le numéro tel qu'il apparaît dans Odoo (ex. `S00513`), et non l'identifiant technique de la base — ce dernier ne permet pas de retrouver la commande depuis l'interface d'Odoo. Les lignes antérieures à la version 1.3.5 n'ont pas ce numéro et affichent `id 513` ; elles restent retrouvables dans Odoo en cherchant la **référence client**, où le module inscrit la référence de la commande PrestaShop.
+
+Trois façons de relancer une synchronisation :
+
+- le bouton **Réessayer** d'une ligne ;
+- les **cases à cocher** et l'action groupée « Réessayer la synchronisation », pour un lot choisi ;
+- le bouton **Réessayer toutes les synchros en erreur**, en haut de la liste.
+
+> La seule action groupée proposée est le réessai. La suppression de lignes du journal est volontairement absente : supprimer une ligne en succès rendrait la commande à nouveau éligible, et le cron en créerait un doublon dans Odoo.
 
 ## Limites connues (v1)
 

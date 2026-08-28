@@ -55,6 +55,16 @@ class AdminOdooSyncLogController extends ModuleAdminController
 
         $this->addRowAction('retry');
 
+        // Déclarer des actions groupées suffit à faire apparaître les cases à cocher.
+        // Volontairement limité au réessai : supprimer une ligne en succès rendrait la commande
+        // à nouveau éligible et le cron en créerait un doublon dans Odoo.
+        $this->bulk_actions = [
+            'retry' => [
+                'text' => $this->trans('Réessayer la synchronisation', [], 'Modules.Odoosalesync.Admin'),
+                'icon' => 'icon-refresh',
+            ],
+        ];
+
         $this->toolbar_btn['back_to_settings'] = [
             'href' => $this->context->link->getAdminLink('AdminOdooSyncSettings'),
             'desc' => $this->trans('Configuration du module', [], 'Modules.Odoosalesync.Admin'),
@@ -187,6 +197,31 @@ class AdminOdooSyncLogController extends ModuleAdminController
         }
 
         parent::postProcess();
+    }
+
+    /**
+     * Action groupée : réessaie les lignes cochées.
+     * PrestaShop dépose les identifiants sélectionnés dans $this->boxes.
+     */
+    public function processBulkRetry()
+    {
+        $ids = array_map('intval', (array) $this->boxes);
+        $ids = array_filter($ids);
+
+        if (empty($ids)) {
+            $this->errors[] = $this->trans('Aucune ligne sélectionnée.', [], 'Modules.Odoosalesync.Admin');
+
+            return false;
+        }
+
+        $rows = Db::getInstance()->executeS(
+            'SELECT id_order FROM `' . _DB_PREFIX_ . 'odoosync_order`
+             WHERE id_odoosync_order IN (' . implode(',', $ids) . ')'
+        );
+
+        $this->retryOrders(array_map('intval', array_column($rows ?: [], 'id_order')));
+
+        return true;
     }
 
     protected function retryOrders(array $idOrders)
