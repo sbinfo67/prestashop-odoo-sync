@@ -344,6 +344,14 @@ Un token est généré à l'installation et affiché sur l'écran de configurati
 https://votre-boutique.example/modules/odoosalesync/cron.php?token=XXXXXXXX
 ```
 
+## Protection contre les doublons
+
+Avant de créer une commande dans Odoo, le module vérifie qu'aucune commande **portant la même référence PrestaShop** n'y existe déjà (hors commandes annulées). Le cas échéant, il l'adopte au lieu d'en créer une seconde.
+
+Ce contrôle est indispensable : le suivi en base ne suffit pas. Si Odoo enregistre la commande mais que la réponse n'arrive pas — délai dépassé, connexion coupée, processus interrompu — l'identifiant n'est jamais mémorisé, et la tentative suivante en créerait une seconde. Même situation si le hook de paiement et le cron traitent la commande au même instant.
+
+Une commande **annulée** dans Odoo n'est pas adoptée : une relance en recrée une, ce qui permet de repartir proprement après une annulation.
+
 ## Journal / réessai manuel
 
 Le journal s'ouvre depuis l'écran de configuration du module, bouton **Ouvrir le journal de synchronisation** (les onglets créés par le module n'apparaissent pas dans le menu latéral de PrestaShop 9). Il liste toutes les tentatives de synchro (succès/erreur, message d'erreur, commande et client Odoo créés).

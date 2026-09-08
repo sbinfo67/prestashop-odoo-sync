@@ -537,6 +537,25 @@ class OdooOrderSync
         $orderLines = $this->buildOrderLines($products);
         $orderLines = array_merge($orderLines, $this->buildShippingLines($order), $this->buildDiscountLines($order));
 
+        // Dernier garde-fou avant création : une commande portant déjà cette référence existe-t-elle
+        // dans Odoo ? Le suivi en base ne suffit pas. Si Odoo enregistre la commande mais que la
+        // réponse se perd (délai dépassé, connexion coupée), l'identifiant n'est jamais mémorisé et
+        // la tentative suivante en créerait une seconde. Même situation si le hook de paiement et le
+        // cron traitent la commande en même temps. La référence, elle, est portée par la commande
+        // elle-même : c'est le seul repère fiable.
+        $existing = $this->findOdooOrderByReference($order->reference);
+
+        if ($existing) {
+            $this->lastOdooOrder = $existing;
+
+            return [
+                'id_odoo_order' => $existing,
+                'id_odoo_partner' => $idOdooPartner,
+                'odoo_order_name' => $this->lastOdooOrderName,
+                'adopted' => true,
+            ];
+        }
+
         $idOdooOrder = $this->client->create('sale.order', [
             'partner_id' => $idOdooPartner,
             'client_order_ref' => $order->reference,
@@ -569,6 +588,37 @@ class OdooOrderSync
             'id_odoo_partner' => $idOdooPartner,
             'odoo_order_name' => $this->lastOdooOrderName,
         ];
+    }
+
+    /**
+     * Recherche dans Odoo une commande déjà créée pour cette référence PrestaShop.
+     * Les commandes annulées sont ignorées : une commande annulée dans Odoo doit pouvoir être
+     * refaite par une relance.
+     *
+     * @return int|null identifiant de la commande Odoo existante
+     */
+    private function findOdooOrderByReference($reference)
+    {
+        $reference = trim((string) $reference);
+
+        if ($reference === '') {
+            return null;
+        }
+
+        $rows = $this->client->searchRead(
+            'sale.order',
+            [['client_order_ref', '=', $reference], ['state', '!=', 'cancel']],
+            ['id', 'name'],
+            1
+        );
+
+        if (empty($rows)) {
+            return null;
+        }
+
+        $this->lastOdooOrderName = isset($rows[0]['name']) ? (string) $rows[0]['name'] : null;
+
+        return (int) $rows[0]['id'];
     }
 
     /**
