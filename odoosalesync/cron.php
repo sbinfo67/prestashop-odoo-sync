@@ -36,6 +36,10 @@ if (!$isCli) {
 
 $result = OdooOrderSync::runCatchUp();
 
+// Trace du passage, affichée sur l'écran de configuration : un cron arrêté ne se voit
+// autrement pas, les commandes cessent simplement d'arriver dans Odoo sans erreur ni alerte.
+OdooOrderSync::recordCronRun();
+
 echo sprintf(
     "Terminé : %d commande(s) synchronisée(s), %d échec(s), %d commande(s) traitée(s) au total.\n",
     $result['success'],

@@ -198,6 +198,71 @@ class OdooOrderSync
     }
 
     /**
+     * Un changement d'état doit-il déclencher la synchronisation ?
+     *
+     * PrestaShop ne déclenche actionPaymentConfirmation que pour « Paiement accepté » :
+     * OrderHistory::changeIdOrderState le réserve à PS_OS_PAYMENT et PS_OS_WS_PAYMENT. Une
+     * commande saisie à la main dans le back-office, créée d'emblée en « Expédié », ou passée
+     * directement d'un état d'attente à un état livré, n'y passe jamais. On se fie donc à
+     * l'état lui-même : tout état marqué « payé », plus les états choisis dans la configuration.
+     *
+     * @param int $idState
+     * @param OrderState|null $state état déjà chargé par le hook, s'il est disponible
+     *
+     * @return bool
+     */
+    public static function isSyncState($idState, $state = null)
+    {
+        $idState = (int) $idState;
+
+        // L'annulation, le remboursement et l'erreur de paiement ne doivent jamais créer
+        // une commande dans Odoo, même si l'état est marqué comme payé.
+        if (!$idState || in_array($idState, self::excludedStates(), true)) {
+            return false;
+        }
+
+        if (in_array($idState, self::configuredStates(), true)) {
+            return true;
+        }
+
+        if (!($state instanceof OrderState) || !Validate::isLoadedObject($state)) {
+            $state = new OrderState($idState);
+        }
+
+        return Validate::isLoadedObject($state) && (bool) $state->paid;
+    }
+
+    /**
+     * États choisis dans la configuration (livraison, facture, chaîne complète).
+     *
+     * @return int[]
+     */
+    public static function configuredStates()
+    {
+        $states = self::getFullCycleStates();
+        $states[] = (int) Configuration::get('ODOOSALESYNC_STATE_DELIVERY');
+        $states[] = (int) Configuration::get('ODOOSALESYNC_STATE_INVOICE');
+
+        return array_values(array_unique(array_filter($states)));
+    }
+
+    /**
+     * États qui ne déclenchent jamais de synchronisation.
+     *
+     * @return int[]
+     */
+    public static function excludedStates()
+    {
+        $states = [
+            (int) Configuration::get('PS_OS_CANCELED'),
+            (int) Configuration::get('PS_OS_REFUND'),
+            (int) Configuration::get('PS_OS_ERROR'),
+        ];
+
+        return array_values(array_unique(array_filter($states)));
+    }
+
+    /**
      * Valide le bon de livraison Odoo de la commande.
      *
      * Rien n'est validé si le stock ne couvre pas l'intégralité des lignes : l'opérateur doit
@@ -258,7 +323,22 @@ class OdooOrderSync
             }
 
             $this->assertStockAvailable($picking);
-            $this->client->executeKw('stock.picking', 'button_validate', [[(int) $picking['id']]]);
+
+            // skip_sms : sans ce contexte, Odoo renvoie l'assistant de confirmation d'envoi de
+            // SMS au client au lieu de valider, et le bon reste en attente.
+            $action = $this->client->executeKw(
+                'stock.picking',
+                'button_validate',
+                [[(int) $picking['id']]],
+                ['context' => ['skip_sms' => true]]
+            );
+
+            // button_validate ne lève pas d'erreur quand Odoo veut d'abord poser une question :
+            // il renvoie un assistant (reliquat, transfert immédiat...) et le bon n'est pas validé.
+            // Sans ce contrôle, le journal annoncerait une livraison faite qui ne l'est pas, et
+            // la facturation échouerait ensuite sur un message incompréhensible.
+            $this->assertPickingDone((int) $picking['id'], (string) $picking['name'], $action);
+
             $validated[] = $picking['name'];
         }
 
@@ -269,6 +349,33 @@ class OdooOrderSync
                 ? null
                 : 'Bon(s) de livraison déjà validé(s) dans Odoo, aucune action nécessaire.',
         ];
+    }
+
+    /**
+     * Vérifie qu'un bon de livraison est réellement passé à « Fait » après sa validation.
+     *
+     * @param int $idPicking
+     * @param string $name
+     * @param mixed $action retour de button_validate : true, ou un assistant à confirmer
+     */
+    private function assertPickingDone($idPicking, $name, $action)
+    {
+        $after = $this->client->searchRead('stock.picking', [['id', '=', $idPicking]], ['state'], 1);
+        $state = !empty($after) ? (string) $after[0]['state'] : '';
+
+        if ($state === 'done') {
+            return;
+        }
+
+        $wizard = is_array($action) && !empty($action['res_model']) ? (string) $action['res_model'] : null;
+
+        throw new OdooOrderSyncException(sprintf(
+            'Le bon de livraison %s n\'a pas été validé par Odoo%s : il est resté à l\'état « %s ». '
+            . 'Validez-le à la main dans Odoo, puis relancez depuis le journal.',
+            $name,
+            $wizard ? ', qui demande d\'abord une confirmation (' . $wizard . ')' : '',
+            $state
+        ));
     }
 
     /**
@@ -1203,11 +1310,18 @@ class OdooOrderSync
             ? ''
             : ' AND o.date_add >= DATE_SUB(NOW(), INTERVAL ' . (int) $hours . ' HOUR)';
 
+        // Une commande annulée ou remboursée peut rester marquée « payée » : elle n'a rien
+        // à faire dans Odoo tant qu'elle n'y est pas déjà.
+        $excluded = self::excludedStates();
+        $excludedCondition = $excluded
+            ? ' AND o.current_state NOT IN (' . implode(',', $excluded) . ')'
+            : '';
+
         $sql = 'SELECT o.id_order
                 FROM `' . _DB_PREFIX_ . 'orders` o
                 INNER JOIN `' . _DB_PREFIX_ . 'order_state` os ON os.id_order_state = o.current_state
                 LEFT JOIN `' . _DB_PREFIX_ . 'odoosync_order` s ON s.id_order = o.id_order
-                WHERE os.paid = 1' . $windowCondition . $startDateCondition . '
+                WHERE os.paid = 1' . $windowCondition . $startDateCondition . $excludedCondition . '
                   AND (s.id_odoosync_order IS NULL OR s.status = "error"' . self::pendingStepsCondition() . ')
                 ORDER BY o.id_order ASC
                 LIMIT ' . (int) $limit;
@@ -1477,6 +1591,27 @@ class OdooOrderSync
      *
      * @return array{success:int,failed:int,total:int}
      */
+    /**
+     * Mémorise l'heure du dernier passage du cron de rattrapage.
+     *
+     * Seul cron.php l'appelle : le bouton « Synchroniser maintenant » du back-office ne doit
+     * pas faire croire que le cron tourne alors qu'il est arrêté.
+     */
+    public static function recordCronRun()
+    {
+        Configuration::updateValue('ODOOSALESYNC_CRON_LAST', time());
+    }
+
+    /**
+     * @return int|null horodatage du dernier passage du cron, null s'il n'a jamais tourné
+     */
+    public static function getLastCronRun()
+    {
+        $last = (int) Configuration::get('ODOOSALESYNC_CRON_LAST');
+
+        return $last > 0 ? $last : null;
+    }
+
     public static function runCatchUp($hours = 48, $limit = 50)
     {
         $orders = self::getOrdersToRetry($hours, $limit);

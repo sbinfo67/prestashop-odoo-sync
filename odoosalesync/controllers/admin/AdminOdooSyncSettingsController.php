@@ -343,7 +343,8 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
                         'type' => 'html',
                         'name' => 'cron_info',
                         'label' => $this->trans('Cron de rattrapage', [], 'Modules.Odoosalesync.Admin'),
-                        'html_content' => '<p class="help-block">'
+                        'html_content' => $this->renderCronStatus()
+                            . '<p class="help-block">'
                             . $this->trans('Recommandé (CLI, contourne le blocage .htaccess de PrestaShop 9) — à ajouter au crontab système :', [], 'Modules.Odoosalesync.Admin')
                             . '</p><code>' . htmlspecialchars($cronCli) . '</code>'
                             . '<p class="help-block" style="margin-top:10px">'
@@ -404,6 +405,51 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
      * anglophone, « 30 jours » sur une base française. Si Odoo est injoignable au moment
      * d'afficher l'écran, on retombe sur une saisie libre du nom pour ne pas bloquer.
      */
+    /**
+     * Fraîcheur du cron de rattrapage.
+     *
+     * Sans ce repère, un cron arrêté est invisible : les commandes qui échappent aux hooks
+     * cessent simplement d'arriver dans Odoo, et aucune alerte ne part — l'email d'alerte
+     * étant lui-même envoyé par le cron.
+     */
+    protected function renderCronStatus()
+    {
+        $last = OdooOrderSync::getLastCronRun();
+
+        if ($last === null) {
+            return '<p class="alert alert-warning">'
+                . $this->trans('Le cron n\'a jamais tourné.', [], 'Modules.Odoosalesync.Admin') . ' '
+                . $this->trans('Tant qu\'il est arrêté, rien ne rattrape une commande qu\'Odoo a refusée, et aucune alerte n\'est envoyée.', [], 'Modules.Odoosalesync.Admin')
+                . '</p>';
+        }
+
+        $elapsed = max(0, time() - $last);
+
+        if ($elapsed < 3600) {
+            $ago = sprintf($this->trans('il y a %d minute(s)', [], 'Modules.Odoosalesync.Admin'), (int) floor($elapsed / 60));
+        } elseif ($elapsed < 86400) {
+            $ago = sprintf($this->trans('il y a %d heure(s)', [], 'Modules.Odoosalesync.Admin'), (int) floor($elapsed / 3600));
+        } else {
+            $ago = sprintf($this->trans('il y a %d jour(s)', [], 'Modules.Odoosalesync.Admin'), (int) floor($elapsed / 86400));
+        }
+
+        $line = sprintf(
+            $this->trans('Dernier passage du cron : %s (%s).', [], 'Modules.Odoosalesync.Admin'),
+            $ago,
+            date('d/m/Y H:i', $last)
+        );
+
+        // Une heure sans passage alors que la périodicité conseillée est de dix minutes :
+        // le cron ne tourne plus.
+        if ($elapsed > 3600) {
+            return '<p class="alert alert-warning">' . $line . ' '
+                . $this->trans('C\'est bien plus que la périodicité conseillée de dix minutes : vérifiez la tâche planifiée.', [], 'Modules.Odoosalesync.Admin')
+                . '</p>';
+        }
+
+        return '<p class="alert alert-info">' . $line . '</p>';
+    }
+
     protected function paymentTermField()
     {
         $terms = $this->fetchPaymentTerms();

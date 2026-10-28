@@ -4,12 +4,20 @@ Module PrestaShop 8/9 qui crée automatiquement une commande de vente (`sale.ord
 
 ## Ce que fait le module
 
-1. À chaque fois qu'une commande PrestaShop atteint un état de paiement accepté (hook `actionPaymentConfirmation`), le module :
+1. Dès qu'une commande PrestaShop atteint un statut **payé**, le module :
    - recherche le client dans Odoo par email ; s'il n'existe pas, le crée (nom, email, adresse, téléphone, pays) ;
    - retrouve chaque produit de la commande dans Odoo par sa référence (`product.product.default_code` = référence PrestaShop, comparaison **sensible à la casse**) ;
    - crée une commande `sale.order` avec ces lignes, et la confirme automatiquement (option désactivable) ;
    - enregistre le résultat dans une table de suivi (`ps_odoosync_order`), consultable via le bouton **Ouvrir le journal de synchronisation** de l'écran de configuration.
 2. Toute erreur (Odoo injoignable, produit non mappé, etc.) est capturée : **le paiement du client n'est jamais bloqué**. L'erreur est journalisée et peut être corrigée puis rejouée manuellement, ou rattrapée automatiquement par le cron.
+
+## Ce qui déclenche la synchronisation
+
+Le module se fie au **statut de la commande**, et non au moyen de paiement. Dès qu'une commande atteint un statut marqué *payé* dans PrestaShop (*Paiement accepté*, *Paiement accepté par chèque*, *Préparation en cours*, *Expédié*, *Livré*…), ou l'un des statuts choisis dans la configuration, la chaîne est relancée : création de la commande dans Odoo si elle n'y est pas encore, puis validation du bon de livraison et facturation selon le statut atteint. Les étapes déjà réussies sont ignorées, le passage est donc sans effet sur une commande à jour.
+
+Trois statuts sont exclus et ne créent jamais rien dans Odoo : *Annulé*, *Remboursé* et *Erreur de paiement*.
+
+> **Pourquoi pas le hook de paiement seul.** PrestaShop ne déclenche `actionPaymentConfirmation` que pour *Paiement accepté* (`OrderHistory::changeIdOrderState` le réserve à `PS_OS_PAYMENT` et `PS_OS_WS_PAYMENT`). Une commande **saisie à la main dans le back-office** — geste courant pour dépanner un client — est créée directement dans son statut final, souvent *Expédié* : elle ne passe jamais par ce hook. Jusqu'à la version 1.10.0, elle n'arrivait dans Odoo qu'au passage suivant du cron, et jamais du tout si le cron était arrêté. C'est pourquoi le déclencheur est désormais le statut lui-même.
 
 ## Prérequis côté Odoo
 
@@ -233,6 +241,8 @@ Au-delà de la commande, le module suit deux étapes déclenchées par les **sta
 
 **Validation du bon de livraison** — au statut configuré (par défaut *Préparation en cours*, celui que PrestaShop applique à l'impression du bon de livraison), le module valide le BL Odoo de la commande.
 
+Le module vérifie que le bon est bien passé à *Fait* après validation. Odoo ne lève pas toujours d'erreur : il peut renvoyer un assistant — confirmation d'envoi de SMS au client, reliquat, transfert immédiat — et laisser le bon en attente. Sans ce contrôle, le journal annoncerait une livraison faite qui ne l'est pas, et la facturation échouerait ensuite sur un message incompréhensible. L'assistant d'envoi de SMS est explicitement neutralisé ; pour les autres, la synchro passe en erreur en nommant l'assistant attendu, et vous validez le bon à la main.
+
 Si le stock Odoo ne couvre pas l'intégralité des lignes, **rien n'est validé** : la synchro passe en erreur en nommant les articles et les quantités manquantes. L'opérateur ajuste le stock dans Odoo, puis relance depuis le journal — ou valide le bon à la main. Une validation partielle n'est jamais faite d'office : elle créerait des reliquats et une facture incomplète.
 
 **Facturation** — au statut configuré (par défaut *Expédié*), le module crée la facture Odoo, lui applique la condition de paiement choisie et la comptabilise.
@@ -325,6 +335,8 @@ Objectif : lors d'une première installation sur un PrestaShop **déjà en produ
 ## Cron de rattrapage
 
 Ce cron rejoue la synchro pour les commandes payées des dernières 48h qui n'ont pas encore de synchro réussie (utile si Odoo était temporairement indisponible au moment du paiement).
+
+L'écran de configuration affiche **la date du dernier passage du cron**, et avertit au-delà d'une heure sans passage. Ce repère n'est pas un ornement : un cron arrêté ne se voit pas autrement. Les commandes cessent simplement d'arriver dans Odoo, sans erreur à l'écran et sans email — puisque l'alerte est elle-même envoyée par le cron. Le bouton *Synchroniser maintenant* ne met pas ce repère à jour, afin qu'une synchro manuelle ne fasse pas croire que la tâche planifiée tourne.
 
 ### Mode recommandé : ligne de commande (CLI)
 

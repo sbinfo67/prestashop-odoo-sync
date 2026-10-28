@@ -12,7 +12,7 @@ class Odoosalesync extends Module
     {
         $this->name = 'odoosalesync';
         $this->tab = 'administration';
-        $this->version = '1.9.3';
+        $this->version = '1.10.0';
         $this->author = 'SBINFO';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -53,6 +53,7 @@ class Odoosalesync extends Module
             && Configuration::updateValue('ODOOSALESYNC_SHIPPING_REF', '')
             && Configuration::updateValue('ODOOSALESYNC_DISCOUNT_REF', '')
             && Configuration::updateValue('ODOOSALESYNC_START_DATE', date('Y-m-d'))
+            && Configuration::updateValue('ODOOSALESYNC_CRON_LAST', 0)
             && Configuration::updateValue('ODOOSALESYNC_CRON_TOKEN', bin2hex(random_bytes(16)));
     }
 
@@ -79,6 +80,7 @@ class Odoosalesync extends Module
             && Configuration::deleteByName('ODOOSALESYNC_SHIPPING_REF')
             && Configuration::deleteByName('ODOOSALESYNC_DISCOUNT_REF')
             && Configuration::deleteByName('ODOOSALESYNC_START_DATE')
+            && Configuration::deleteByName('ODOOSALESYNC_CRON_LAST')
             && Configuration::deleteByName('ODOOSALESYNC_CRON_TOKEN');
     }
 
@@ -239,8 +241,18 @@ class Odoosalesync extends Module
     }
 
     /**
-     * Déclenché à chaque changement d'état de commande : sert à valider le bon de livraison
-     * puis à établir la facture dans Odoo, selon les états configurés.
+     * Déclenché à chaque changement d'état de commande.
+     *
+     * C'est le point d'entrée principal de la synchronisation, et non le hook de paiement :
+     * PrestaShop ne déclenche actionPaymentConfirmation que pour « Paiement accepté ». Une
+     * commande saisie à la main dans le back-office, créée d'emblée en « Expédié », ou passée
+     * directement d'un état d'attente à un état livré, n'y passe jamais — elle n'arrivait
+     * alors dans Odoo qu'au prochain passage du cron, et jamais du tout si le cron est arrêté.
+     *
+     * On relance donc la chaîne complète : elle crée la commande dans Odoo si elle n'y est pas
+     * encore, puis valide le bon de livraison et facture selon l'état atteint. Chaque étape
+     * déjà réussie est ignorée, l'appel est donc sans effet sur une commande à jour.
+     *
      * Comme le hook de paiement, il ne doit jamais interrompre le back-office.
      */
     public function hookActionOrderStatusPostUpdate($params)
@@ -250,23 +262,19 @@ class Odoosalesync extends Module
         }
 
         $idOrder = (int) $params['id_order'];
-        $idState = (int) $params['newOrderStatus']->id;
+        $state = $params['newOrderStatus'];
 
-        $steps = [
-            (int) Configuration::get('ODOOSALESYNC_STATE_DELIVERY') => 'syncDelivery',
-            (int) Configuration::get('ODOOSALESYNC_STATE_INVOICE') => 'syncInvoice',
-        ];
-
-        if (!$idState || !isset($steps[$idState])) {
+        if (!OdooOrderSync::isSyncState((int) $state->id, $state)) {
             return;
         }
 
         try {
             $sync = new OdooOrderSync();
-            $sync->{$steps[$idState]}($idOrder);
+            $sync->syncPipeline($idOrder);
         } catch (Throwable $e) {
             PrestaShopLogger::addLog(
-                'Odoosalesync: ' . $steps[$idState] . ' a échoué pour la commande #' . $idOrder . ' : ' . $e->getMessage(),
+                'Odoosalesync: synchronisation de la commande #' . $idOrder . ' échouée au passage à l\'état #'
+                    . (int) $state->id . ' : ' . $e->getMessage(),
                 3,
                 null,
                 'Order',
