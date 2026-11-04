@@ -19,6 +19,7 @@ $sql[] = 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'odoosync_order` (
     `odoo_invoice_name` VARCHAR(64) NULL DEFAULT NULL,
     `invoice_status` VARCHAR(10) NULL DEFAULT NULL,
     `invoice_message` TEXT NULL DEFAULT NULL,
+    `payplug_ref` VARCHAR(255) NULL DEFAULT NULL,
     `status` ENUM(\'success\', \'error\') NOT NULL,
     `message` TEXT NULL DEFAULT NULL,
     `date_add` DATETIME NOT NULL,

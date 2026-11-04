@@ -267,6 +267,20 @@ Si une colonne affiche `id 4700` au lieu d'un numéro, c'est que la pièce Odoo 
 
 > Si une relance affiche « sans étape à exécuter » et que ces colonnes restent vides, c'est que le statut PrestaShop de la commande ne figure dans aucun des statuts configurés. C'est le cas typique de commandes en *Livré* alors que seuls *Préparation en cours* et *Expédié* sont renseignés : ajoutez *Livré* aux **statuts déclenchant le cycle complet**. Le bouton **Réessayer** rejoue l'étape en erreur, sans refaire celles déjà réussies.
 
+## Identifiant de paiement Payplug
+
+Quand la commande a été payée sur la boutique par Payplug, le module reporte l'identifiant du paiement sur la facture Odoo, dans le champ `payplug_payment_ref` (*Payplug Payment Reference*).
+
+Il sert au rapprochement des virements Payplug. Un virement regroupe plusieurs paiements, frais déduits, et son libellé bancaire ne porte aucune référence de commande : ni le nom du client ni la référence de la commande ne suffisent à retrouver à quelle facture il se rapporte. L'identifiant du paiement, lui, est sans ambiguïté.
+
+**Côté PrestaShop**, la valeur est lue dans `ps_order_payment.transaction_id`, où le module Payplug l'écrit au moment de valider la commande. C'est l'identifiant brut renvoyé par l'API : `pay_…` pour une carte, `inst_…` pour un paiement en plusieurs fois. Si la commande a reçu plusieurs règlements portant des identifiants différents, ils sont reportés séparés par une virgule.
+
+**Côté Odoo**, le champ est déclaré par le module [payment_payplug](https://github.com/sbinfo67/odoo-payplug). S'il n'est pas installé, le module s'en aperçoit et n'écrit rien — la facturation se déroule normalement, la colonne du journal reste vide.
+
+> Une case vide n'est pas une anomalie. Une commande **saisie à la main dans le back-office** n'est jamais passée par le module Payplug de la boutique : elle n'a pas d'identifiant à reporter. Si son paiement a été encaissé par un lien créé depuis Odoo, l'identifiant s'y trouve déjà, sur la transaction de paiement (`payment.transaction.provider_reference`).
+
+Le report a lieu juste après la création de la facture. S'il échoue — Odoo injoignable à cet instant précis — la facture n'est pas remise en cause : elle est déjà établie. Le cron repasse à chaque tour sur les factures dont l'identifiant manque encore, et ne considère que les commandes ayant réellement un paiement Payplug, de sorte que les autres ne sont pas réexaminées indéfiniment. C'est aussi ce qui rattrape les commandes synchronisées avant la version 1.11.0.
+
 ## Reprise d'un historique déjà livré
 
 Lors de la première synchronisation d'une boutique en production, les commandes passées sont souvent déjà livrées. Valider leur bon de livraison puis créer leur facture une par une dans Odoo serait interminable.

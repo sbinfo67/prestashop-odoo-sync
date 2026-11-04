@@ -51,6 +51,12 @@ class AdminOdooSyncLogController extends ModuleAdminController
                 'search' => false,
                 'orderby' => false,
             ],
+            'payplug_ref' => [
+                'title' => $this->trans('Paiement Payplug', [], 'Modules.Odoosalesync.Admin'),
+                'align' => 'center',
+                'callback' => 'displayPayplugRef',
+                'orderby' => false,
+            ],
             'id_odoo_partner' => [
                 'title' => $this->trans('Client Odoo', [], 'Modules.Odoosalesync.Admin'),
                 'align' => 'center',
@@ -240,6 +246,22 @@ class AdminOdooSyncLogController extends ModuleAdminController
     /**
      * Lien vers la fiche client dans Odoo.
      */
+    /**
+     * Identifiant de paiement Payplug reporté sur la facture Odoo.
+     * Vide n'est pas une anomalie : une commande saisie à la main n'est pas passée par
+     * le module Payplug de la boutique et n'a donc aucun identifiant à reporter.
+     */
+    public function displayPayplugRef($value, $row)
+    {
+        $value = trim((string) $value);
+
+        if ($value === '') {
+            return '<span class="text-muted">&mdash;</span>';
+        }
+
+        return '<span style="font-family:monospace">' . htmlspecialchars($value) . '</span>';
+    }
+
     public function displayOdooPartner($idPartner, $row)
     {
         $idPartner = (int) $idPartner;

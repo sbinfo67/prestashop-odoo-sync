@@ -37,6 +37,15 @@ class OdooOrderSync
      */
     const RATE_TOLERANCE = 0.05;
 
+    /**
+     * Champ Odoo recevant l'identifiant de paiement Payplug de la commande.
+     * Déclaré par le module Odoo payment_payplug ; absent si celui-ci n'est pas installé.
+     */
+    const PAYPLUG_FIELD = 'payplug_payment_ref';
+
+    /** @var bool|null le champ Payplug existe-t-il dans cet Odoo ? (null = pas encore vérifié) */
+    private $payplugFieldAvailable = null;
+
     /** @var int|null identifiants créés lors de la tentative en cours, conservés en cas d'échec ultérieur */
     private $lastOdooOrder = null;
 
@@ -444,12 +453,167 @@ class OdooOrderSync
         try {
             $result = $this->doSyncInvoice((int) $row['id_odoo_order']);
             $this->saveStepRow($idOrder, 'invoice', 'success', $result['id'], $result['name'], $result['message']);
+            $this->writePayplugRef($idOrder, (int) $result['id']);
 
             return $result;
         } catch (Throwable $e) {
             $this->saveStepRow($idOrder, 'invoice', 'error', null, null, $e->getMessage());
             throw $e;
         }
+    }
+
+    /**
+     * Identifiant de paiement Payplug de la commande, tel que la boutique l'a enregistré.
+     *
+     * Le module Payplug de PrestaShop le passe à validateOrder dans transaction_id : c'est
+     * l'identifiant brut renvoyé par l'API, « pay_… » en carte et « inst_… » en paiement
+     * plusieurs fois. Une commande saisie à la main dans le back-office n'a pas traversé ce
+     * module : elle n'a pas d'identifiant à faire remonter, et la méthode renvoie null.
+     *
+     * @return string|null identifiants distincts séparés par ", " s'il y a eu plusieurs
+     *                     règlements, null si aucun
+     */
+    public static function payplugReference($idOrder)
+    {
+        $order = new Order((int) $idOrder);
+
+        if (!Validate::isLoadedObject($order)) {
+            return null;
+        }
+
+        $references = [];
+
+        foreach ($order->getOrderPaymentCollection() as $payment) {
+            $value = trim((string) $payment->transaction_id);
+
+            if ($value !== '' && !in_array($value, $references, true)) {
+                $references[] = $value;
+            }
+        }
+
+        return $references ? implode(', ', $references) : null;
+    }
+
+    /**
+     * Le champ Payplug est-il présent dans cet Odoo ?
+     *
+     * Il appartient au module Odoo payment_payplug : sans lui, l'écriture échouerait sur
+     * « Invalid field ». On vérifie une fois par instance plutôt que de laisser l'erreur
+     * casser une facturation par ailleurs réussie.
+     */
+    private function odooHasPayplugField()
+    {
+        if ($this->payplugFieldAvailable === null) {
+            try {
+                $fields = $this->client->executeKw(
+                    'account.move',
+                    'fields_get',
+                    [[self::PAYPLUG_FIELD]],
+                    ['attributes' => ['type']]
+                );
+                $this->payplugFieldAvailable = is_array($fields) && isset($fields[self::PAYPLUG_FIELD]);
+            } catch (Throwable $e) {
+                $this->payplugFieldAvailable = false;
+            }
+        }
+
+        return $this->payplugFieldAvailable;
+    }
+
+    /**
+     * Reporte l'identifiant de paiement Payplug sur la facture Odoo.
+     *
+     * Sert au rapprochement des virements Payplug : le virement regroupe plusieurs paiements,
+     * frais déduits, et son libellé bancaire ne porte aucune référence de commande.
+     *
+     * Jamais bloquant : la facture est déjà créée et comptabilisée au moment de l'appel, un
+     * échec ici ne doit pas la faire reconstruire. Le journal garde la case vide, et la passe
+     * de rattrapage réessaiera.
+     */
+    private function writePayplugRef($idOrder, $idInvoice)
+    {
+        $idInvoice = (int) $idInvoice;
+        $reference = self::payplugReference($idOrder);
+
+        if (!$idInvoice || $reference === null || !$this->odooHasPayplugField()) {
+            return;
+        }
+
+        try {
+            $this->client->executeKw(
+                'account.move',
+                'write',
+                [[$idInvoice], [self::PAYPLUG_FIELD => $reference]]
+            );
+        } catch (Throwable $e) {
+            PrestaShopLogger::addLog(
+                'Odoosalesync: identifiant Payplug non reporté sur la facture Odoo #' . $idInvoice
+                    . ' de la commande #' . (int) $idOrder . ' : ' . $e->getMessage(),
+                2,
+                null,
+                'Order',
+                (int) $idOrder,
+                true
+            );
+
+            return;
+        }
+
+        Db::getInstance()->update(
+            'odoosync_order',
+            ['payplug_ref' => pSQL($reference), 'date_upd' => date('Y-m-d H:i:s')],
+            'id_order = ' . (int) $idOrder
+        );
+    }
+
+    /**
+     * Reporte l'identifiant Payplug sur les factures déjà créées qui ne l'ont pas encore.
+     *
+     * Rattrapage des commandes synchronisées avant la 1.11.0, et des écritures qu'un Odoo
+     * momentanément injoignable a fait échouer. La requête ne retient que les commandes
+     * ayant réellement un paiement Payplug : les autres ne reviennent jamais à chaque passage.
+     *
+     * @return array{filled:int,reason:string}
+     */
+    public function backfillPayplugRefs($limit = 100)
+    {
+        if (!$this->odooHasPayplugField()) {
+            return ['filled' => 0, 'reason' => 'champ absent dans Odoo (module payment_payplug non installé)'];
+        }
+
+        $rows = Db::getInstance()->executeS(
+            'SELECT DISTINCT s.id_order, s.id_odoo_invoice
+             FROM `' . _DB_PREFIX_ . 'odoosync_order` s
+             INNER JOIN `' . _DB_PREFIX_ . 'orders` o ON o.id_order = s.id_order
+             INNER JOIN `' . _DB_PREFIX_ . 'order_payment` op ON op.order_reference = o.reference
+             WHERE s.id_odoo_invoice > 0
+               AND (s.payplug_ref IS NULL OR s.payplug_ref = "")
+               AND op.transaction_id IS NOT NULL AND op.transaction_id <> ""
+             ORDER BY s.id_order ASC
+             LIMIT ' . (int) $limit
+        ) ?: [];
+
+        $filled = 0;
+
+        foreach ($rows as $row) {
+            $before = (string) Db::getInstance()->getValue(
+                'SELECT payplug_ref FROM `' . _DB_PREFIX_ . 'odoosync_order`
+                 WHERE id_order = ' . (int) $row['id_order']
+            );
+
+            $this->writePayplugRef((int) $row['id_order'], (int) $row['id_odoo_invoice']);
+
+            $after = (string) Db::getInstance()->getValue(
+                'SELECT payplug_ref FROM `' . _DB_PREFIX_ . 'odoosync_order`
+                 WHERE id_order = ' . (int) $row['id_order']
+            );
+
+            if ($after !== '' && $after !== $before) {
+                ++$filled;
+            }
+        }
+
+        return ['filled' => $filled, 'reason' => $rows ? 'passe terminée' : 'rien à compléter'];
     }
 
     private function doSyncInvoice($idOdooOrder)

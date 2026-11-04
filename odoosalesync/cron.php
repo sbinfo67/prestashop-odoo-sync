@@ -64,6 +64,18 @@ try {
     echo 'Récupération des numéros impossible : ' . $e->getMessage() . "\n";
 }
 
+// Identifiants de paiement Payplug : reportés sur les factures qui ne les ont pas encore,
+// pour le rapprochement des virements. Sans incidence si le module Odoo ne déclare pas le champ.
+try {
+    $payplug = (new OdooOrderSync())->backfillPayplugRefs();
+
+    if ($payplug['filled']) {
+        echo sprintf("Identifiants Payplug reportés sur %d facture(s).\n", $payplug['filled']);
+    }
+} catch (Throwable $e) {
+    echo 'Report des identifiants Payplug impossible : ' . $e->getMessage() . "\n";
+}
+
 // Alerte récapitulative : un seul email par période, quel que soit le nombre d'erreurs.
 $alert = OdooOrderSync::notifyErrors();
 echo sprintf("Alerte : %d commande(s) en erreur, %s.\n", $alert['count'], $alert['reason']);
