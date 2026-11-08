@@ -81,6 +81,22 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
         } else {
             Configuration::updateValue('ODOOSALESYNC_PAYMENT_TERM', trim((string) Tools::getValue('ODOOSALESYNC_PAYMENT_TERM')));
         }
+        if (Tools::getIsset('ODOOSALESYNC_PARTNER_TAG_ID')) {
+            $idTag = (int) Tools::getValue('ODOOSALESYNC_PARTNER_TAG_ID');
+            Configuration::updateValue('ODOOSALESYNC_PARTNER_TAG_ID', $idTag);
+
+            // Le libellé sert de repli si l'étiquette est recréée dans Odoo avec un autre identifiant.
+            $label = '';
+            foreach ((array) $this->fetchPartnerTags() as $tag) {
+                if ((int) $tag['id'] === $idTag) {
+                    $label = $tag['name'];
+                    break;
+                }
+            }
+            Configuration::updateValue('ODOOSALESYNC_PARTNER_TAG', $label);
+        } else {
+            Configuration::updateValue('ODOOSALESYNC_PARTNER_TAG', trim((string) Tools::getValue('ODOOSALESYNC_PARTNER_TAG')));
+        }
         Configuration::updateValue('ODOOSALESYNC_INVOICE_POST', (int) Tools::getValue('ODOOSALESYNC_INVOICE_POST'));
         Configuration::updateValue('ODOOSALESYNC_ALERT_DELAY', max(0, (int) Tools::getValue('ODOOSALESYNC_ALERT_DELAY')));
 
@@ -280,6 +296,7 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
                         'desc' => $this->trans('Référence interne (default_code) d\'un article de service Odoo servant à porter les remises et bons de réduction, en montant négatif. Sensible à la casse. Laisser vide si la boutique n\'en utilise pas.', [], 'Modules.Odoosalesync.Admin'),
                         'class' => 'fixed-width-lg',
                     ],
+                    $this->partnerTagField(),
                     [
                         'type' => 'switch',
                         'label' => $this->trans('Confirmer automatiquement la commande dans Odoo', [], 'Modules.Odoosalesync.Admin'),
@@ -450,6 +467,50 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
         return '<p class="alert alert-info">' . $line . '</p>';
     }
 
+    /**
+     * Étiquette Odoo posée sur les fiches clients, choisie dans la liste de l'Odoo connecté.
+     */
+    protected function partnerTagField()
+    {
+        $tags = $this->fetchPartnerTags();
+
+        if ($tags === null) {
+            return [
+                'type' => 'text',
+                'label' => $this->trans('Étiquette client Odoo', [], 'Modules.Odoosalesync.Admin'),
+                'name' => 'ODOOSALESYNC_PARTNER_TAG',
+                'desc' => $this->trans('Odoo est injoignable : la liste des étiquettes n\'a pas pu être chargée. Saisissez le nom exact de l\'étiquette (ex. « ecommerce »), ou revenez sur cet écran une fois la connexion rétablie pour la choisir dans une liste.', [], 'Modules.Odoosalesync.Admin'),
+                'class' => 'fixed-width-lg',
+            ];
+        }
+
+        $options = [['id' => 0, 'name' => $this->trans('— Aucune —', [], 'Modules.Odoosalesync.Admin')]];
+
+        foreach ($tags as $tag) {
+            $options[] = ['id' => (int) $tag['id'], 'name' => $tag['name']];
+        }
+
+        return [
+            'type' => 'select',
+            'label' => $this->trans('Étiquette client Odoo', [], 'Modules.Odoosalesync.Admin'),
+            'name' => 'ODOOSALESYNC_PARTNER_TAG_ID',
+            'desc' => $this->trans('Posée sur la fiche client Odoo, à la création comme sur une fiche déjà présente, pour regrouper les clients de la boutique. Les autres étiquettes de la fiche sont conservées. La liste provient directement de votre Odoo ; créez l\'étiquette dans Odoo si elle n\'y figure pas.', [], 'Modules.Odoosalesync.Admin'),
+            'options' => ['query' => $options, 'id' => 'id', 'name' => 'name'],
+        ];
+    }
+
+    /**
+     * @return array|null les étiquettes de contact Odoo, ou null si Odoo est injoignable
+     */
+    protected function fetchPartnerTags()
+    {
+        try {
+            return OdooOrderSync::buildClientFromConfig()->searchRead('res.partner.category', [], ['id', 'name']);
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
     protected function paymentTermField()
     {
         $terms = $this->fetchPaymentTerms();
@@ -527,6 +588,8 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
             'ODOOSALESYNC_ALERT_DELAY' => (int) Configuration::get('ODOOSALESYNC_ALERT_DELAY'),
             'ODOOSALESYNC_SHIPPING_REF' => Tools::getValue('ODOOSALESYNC_SHIPPING_REF', Configuration::get('ODOOSALESYNC_SHIPPING_REF')),
             'ODOOSALESYNC_DISCOUNT_REF' => Tools::getValue('ODOOSALESYNC_DISCOUNT_REF', Configuration::get('ODOOSALESYNC_DISCOUNT_REF')),
+            'ODOOSALESYNC_PARTNER_TAG' => Tools::getValue('ODOOSALESYNC_PARTNER_TAG', Configuration::get('ODOOSALESYNC_PARTNER_TAG')),
+            'ODOOSALESYNC_PARTNER_TAG_ID' => (int) Configuration::get('ODOOSALESYNC_PARTNER_TAG_ID'),
         ];
     }
 }

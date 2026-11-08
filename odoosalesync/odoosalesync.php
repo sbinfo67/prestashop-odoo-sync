@@ -12,7 +12,7 @@ class Odoosalesync extends Module
     {
         $this->name = 'odoosalesync';
         $this->tab = 'administration';
-        $this->version = '1.11.0';
+        $this->version = '1.12.0';
         $this->author = 'SBINFO';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -53,6 +53,8 @@ class Odoosalesync extends Module
             && Configuration::updateValue('ODOOSALESYNC_SHIPPING_REF', '')
             && Configuration::updateValue('ODOOSALESYNC_DISCOUNT_REF', '')
             && Configuration::updateValue('ODOOSALESYNC_START_DATE', date('Y-m-d'))
+            && Configuration::updateValue('ODOOSALESYNC_PARTNER_TAG', '')
+            && Configuration::updateValue('ODOOSALESYNC_PARTNER_TAG_ID', 0)
             && Configuration::updateValue('ODOOSALESYNC_CRON_LAST', 0)
             && Configuration::updateValue('ODOOSALESYNC_CRON_TOKEN', bin2hex(random_bytes(16)));
     }
@@ -80,6 +82,8 @@ class Odoosalesync extends Module
             && Configuration::deleteByName('ODOOSALESYNC_SHIPPING_REF')
             && Configuration::deleteByName('ODOOSALESYNC_DISCOUNT_REF')
             && Configuration::deleteByName('ODOOSALESYNC_START_DATE')
+            && Configuration::deleteByName('ODOOSALESYNC_PARTNER_TAG')
+            && Configuration::deleteByName('ODOOSALESYNC_PARTNER_TAG_ID')
             && Configuration::deleteByName('ODOOSALESYNC_CRON_LAST')
             && Configuration::deleteByName('ODOOSALESYNC_CRON_TOKEN');
     }

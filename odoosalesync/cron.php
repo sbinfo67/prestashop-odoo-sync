@@ -76,6 +76,18 @@ try {
     echo 'Report des identifiants Payplug impossible : ' . $e->getMessage() . "\n";
 }
 
+// Étiquette client : posée sur les fiches Odoo déjà synchronisées qui ne l'ont pas encore.
+// Sans effet si aucune étiquette n'est choisie dans la configuration du module.
+try {
+    $tags = (new OdooOrderSync())->backfillPartnerTags();
+
+    if ($tags['filled']) {
+        echo sprintf("Étiquette posée sur %d fiche(s) client Odoo.\n", $tags['filled']);
+    }
+} catch (Throwable $e) {
+    echo 'Pose des étiquettes clients impossible : ' . $e->getMessage() . "\n";
+}
+
 // Alerte récapitulative : un seul email par période, quel que soit le nombre d'erreurs.
 $alert = OdooOrderSync::notifyErrors();
 echo sprintf("Alerte : %d commande(s) en erreur, %s.\n", $alert['count'], $alert['reason']);

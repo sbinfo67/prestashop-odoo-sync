@@ -46,6 +46,12 @@ class OdooOrderSync
     /** @var bool|null le champ Payplug existe-t-il dans cet Odoo ? (null = pas encore vérifié) */
     private $payplugFieldAvailable = null;
 
+    /** @var bool l'étiquette client a-t-elle déjà été résolue pour cette instance ? */
+    private $partnerTagResolved = false;
+
+    /** @var int|null identifiant Odoo de l'étiquette client, null si introuvable ou non configurée */
+    private $partnerTagId = null;
+
     /** @var int|null identifiants créés lors de la tentative en cours, conservés en cas d'échec ultérieur */
     private $lastOdooOrder = null;
 
@@ -1325,6 +1331,11 @@ class OdooOrderSync
         $existing = $this->client->searchRead('res.partner', [['email', '=', $email]], ['id'], 1);
 
         if (!empty($existing)) {
+            // Une fiche déjà présente dans Odoo est tout autant un client de la boutique :
+            // sans cela, le groupe laisserait de côté ceux qui existaient avant leur première
+            // commande en ligne — un professionnel qui commande aussi sur le site, par exemple.
+            $this->applyPartnerTag((int) $existing[0]['id']);
+
             return (int) $existing[0]['id'];
         }
 
@@ -1362,7 +1373,134 @@ class OdooOrderSync
             }
         }
 
-        return $this->client->create('res.partner', $partnerData);
+        $idPartner = (int) $this->client->create('res.partner', $partnerData);
+        $this->applyPartnerTag($idPartner);
+
+        return $idPartner;
+    }
+
+    /**
+     * Identifiant Odoo de l'étiquette à poser sur les fiches clients, ou null.
+     *
+     * Résolu une fois par instance : la valeur ne change pas en cours de traitement, et le
+     * cron enchaîne des dizaines de commandes.
+     */
+    private function resolvePartnerTag()
+    {
+        if ($this->partnerTagResolved) {
+            return $this->partnerTagId;
+        }
+
+        $this->partnerTagResolved = true;
+        $idTag = (int) Configuration::get('ODOOSALESYNC_PARTNER_TAG_ID');
+        $name = trim((string) Configuration::get('ODOOSALESYNC_PARTNER_TAG'));
+
+        if (!$idTag && $name === '') {
+            return null;
+        }
+
+        try {
+            if ($idTag) {
+                $rows = $this->client->searchRead('res.partner.category', [['id', '=', $idTag]], ['id'], 1);
+                $this->partnerTagId = !empty($rows) ? (int) $rows[0]['id'] : null;
+            }
+
+            // Repli par le nom : l'étiquette a pu être recréée dans Odoo avec un autre identifiant.
+            if ($this->partnerTagId === null && $name !== '') {
+                $rows = $this->client->searchRead('res.partner.category', [['name', '=', $name]], ['id'], 1);
+                $this->partnerTagId = !empty($rows) ? (int) $rows[0]['id'] : null;
+            }
+        } catch (Throwable $e) {
+            $this->partnerTagId = null;
+        }
+
+        if ($this->partnerTagId === null) {
+            PrestaShopLogger::addLog(
+                'Odoosalesync: étiquette client introuvable dans Odoo ('
+                    . ($idTag ? 'identifiant ' . $idTag : 'nom « ' . $name . ' »')
+                    . '). Sélectionnez-la de nouveau dans la configuration du module.',
+                2
+            );
+        }
+
+        return $this->partnerTagId;
+    }
+
+    /**
+     * Pose l'étiquette e-commerce sur une fiche client Odoo.
+     *
+     * L'écriture utilise la commande Odoo « (4, id) », qui ajoute à la collection : les autres
+     * étiquettes de la fiche appartiennent à l'opérateur et ne sont jamais retirées. Odoo ignore
+     * l'ajout d'une étiquette déjà présente, l'appel est donc rejouable sans effet de bord.
+     *
+     * Jamais bloquant : regrouper les clients est un confort de classement, une étiquette
+     * introuvable ne doit pas empêcher une commande d'arriver dans Odoo.
+     */
+    private function applyPartnerTag($idPartner)
+    {
+        $idPartner = (int) $idPartner;
+        $idTag = $this->resolvePartnerTag();
+
+        if (!$idPartner || !$idTag) {
+            return;
+        }
+
+        try {
+            $this->client->executeKw(
+                'res.partner',
+                'write',
+                [[$idPartner], ['category_id' => [[4, $idTag]]]]
+            );
+        } catch (Throwable $e) {
+            PrestaShopLogger::addLog(
+                'Odoosalesync: étiquette non posée sur le client Odoo #' . $idPartner . ' : ' . $e->getMessage(),
+                2
+            );
+        }
+    }
+
+    /**
+     * Pose l'étiquette sur les fiches clients déjà synchronisées qui ne l'ont pas.
+     *
+     * C'est Odoo qui dit lesquelles manquent, pas un suivi local : l'opérateur peut avoir
+     * retiré l'étiquette à la main, et une colonne en base prétendrait le contraire.
+     *
+     * @return array{filled:int,reason:string}
+     */
+    public function backfillPartnerTags($limit = 200)
+    {
+        $idTag = $this->resolvePartnerTag();
+
+        if (!$idTag) {
+            return ['filled' => 0, 'reason' => 'aucune étiquette configurée, ou introuvable dans Odoo'];
+        }
+
+        $rows = Db::getInstance()->executeS(
+            'SELECT DISTINCT id_odoo_partner FROM `' . _DB_PREFIX_ . 'odoosync_order`
+             WHERE id_odoo_partner > 0'
+        ) ?: [];
+
+        $ids = array_map('intval', array_column($rows, 'id_odoo_partner'));
+
+        if (!$ids) {
+            return ['filled' => 0, 'reason' => 'aucun client synchronisé'];
+        }
+
+        $missing = $this->client->searchRead(
+            'res.partner',
+            [['id', 'in', $ids], ['category_id', 'not in', [$idTag]]],
+            ['id'],
+            (int) $limit
+        );
+
+        if (empty($missing)) {
+            return ['filled' => 0, 'reason' => 'rien à compléter'];
+        }
+
+        $toTag = array_map('intval', array_column($missing, 'id'));
+        $this->client->executeKw('res.partner', 'write', [$toTag, ['category_id' => [[4, $idTag]]]]);
+
+        return ['filled' => count($toTag), 'reason' => 'passe terminée'];
     }
 
     private function findCountryId($idCountryPs)

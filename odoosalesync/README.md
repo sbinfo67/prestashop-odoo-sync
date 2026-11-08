@@ -267,6 +267,18 @@ Si une colonne affiche `id 4700` au lieu d'un numéro, c'est que la pièce Odoo 
 
 > Si une relance affiche « sans étape à exécuter » et que ces colonnes restent vides, c'est que le statut PrestaShop de la commande ne figure dans aucun des statuts configurés. C'est le cas typique de commandes en *Livré* alors que seuls *Préparation en cours* et *Expédié* sont renseignés : ajoutez *Livré* aux **statuts déclenchant le cycle complet**. Le bouton **Réessayer** rejoue l'étape en erreur, sans refaire celles déjà réussies.
 
+## Étiquette client Odoo
+
+Pour regrouper les clients de la boutique dans Odoo, le module peut poser une **étiquette** (`res.partner.category`, le champ *Étiquettes* de la fiche contact) sur chaque client qu'il synchronise. Elle se choisit dans la configuration du module, dans une liste déroulante alimentée directement par votre Odoo — créez l'étiquette dans Odoo au préalable, par exemple `ecommerce`.
+
+L'étiquette est posée dans les deux cas : sur la fiche que le module crée, et sur une fiche **déjà présente** dans Odoo que le module retrouve par son email. Sans ce second cas, le groupe laisserait de côté les clients qui existaient avant leur première commande en ligne — un professionnel qui commande aussi sur le site, typiquement.
+
+**Les autres étiquettes de la fiche ne sont jamais retirées.** Le module ajoute la sienne et ne touche à rien d'autre : une fiche étiquetée *Grossiste* devient *Grossiste, ecommerce*. Poser une étiquette déjà présente est sans effet, l'opération est donc rejouable.
+
+Le cron repasse à chaque tour sur les fiches clients déjà synchronisées qui n'ont pas l'étiquette et la leur pose. C'est Odoo qui dit lesquelles manquent, et non un suivi en base : si vous retirez l'étiquette d'une fiche à la main, le cron la remettra au passage suivant. Pour sortir définitivement un client du groupe, retirez-le de la synchronisation plutôt que de l'étiquette.
+
+Tant qu'aucune étiquette n'est choisie, le module ne modifie aucune fiche client. Si l'étiquette configurée disparaît d'Odoo, le module la recherche par son nom, puis renonce en le signalant dans les journaux PrestaShop — sans jamais bloquer la synchronisation de la commande, qui est l'essentiel.
+
 ## Identifiant de paiement Payplug
 
 Quand la commande a été payée sur la boutique par Payplug, le module reporte l'identifiant du paiement sur la facture Odoo, dans le champ `payplug_payment_ref` (*Payplug Payment Reference*).
