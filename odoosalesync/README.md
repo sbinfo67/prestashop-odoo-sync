@@ -275,7 +275,7 @@ L'étiquette est posée dans les deux cas : sur la fiche que le module crée, et
 
 **Les autres étiquettes de la fiche ne sont jamais retirées.** Le module ajoute la sienne et ne touche à rien d'autre : une fiche étiquetée *Grossiste* devient *Grossiste, ecommerce*. Poser une étiquette déjà présente est sans effet, l'opération est donc rejouable.
 
-Le cron repasse à chaque tour sur les fiches clients déjà synchronisées qui n'ont pas l'étiquette et la leur pose. C'est Odoo qui dit lesquelles manquent, et non un suivi en base : si vous retirez l'étiquette d'une fiche à la main, le cron la remettra au passage suivant. Pour sortir définitivement un client du groupe, retirez-le de la synchronisation plutôt que de l'étiquette.
+Le cron — et le bouton **Synchroniser maintenant**, qui lance les mêmes passes — repasse sur les fiches clients déjà synchronisées qui n'ont pas l'étiquette et la leur pose. C'est Odoo qui dit lesquelles manquent, et non un suivi en base : si vous retirez l'étiquette d'une fiche à la main, le cron la remettra au passage suivant. Pour sortir définitivement un client du groupe, retirez-le de la synchronisation plutôt que de l'étiquette.
 
 Tant qu'aucune étiquette n'est choisie, le module ne modifie aucune fiche client. Si l'étiquette configurée disparaît d'Odoo, le module la recherche par son nom, puis renonce en le signalant dans les journaux PrestaShop — sans jamais bloquer la synchronisation de la commande, qui est l'essentiel.
 

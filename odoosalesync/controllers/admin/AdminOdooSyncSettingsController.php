@@ -137,6 +137,19 @@ class AdminOdooSyncSettingsController extends ModuleAdminController
         $limit = 50;
         $result = OdooOrderSync::runCatchUp(null, $limit);
 
+        // Les mêmes passes que le cron. Sans elles, ce bouton ne rattrape que les commandes
+        // jamais synchronisées : une commande déjà passée ressort aussitôt, et rien ne
+        // viendrait compléter un numéro Odoo, un identifiant Payplug ou une étiquette client.
+        $maintenance = OdooOrderSync::runMaintenance();
+
+        foreach ($maintenance['lines'] as $line) {
+            $this->confirmations[] = $line;
+        }
+
+        foreach ($maintenance['failed'] as $line) {
+            $this->warnings[] = $line;
+        }
+
         if ($result['total'] === 0) {
             $this->confirmations[] = $this->trans(
                 'Aucune commande à synchroniser : toutes les commandes payées depuis la date de début sont déjà dans Odoo.',

@@ -47,45 +47,11 @@ echo sprintf(
     $result['total']
 );
 
-// Une facture n'a de numéro qu'une fois validée dans Odoo : si elle l'est entre-temps,
-// le journal se complète tout seul au passage suivant du cron.
-try {
-    $filled = (new OdooOrderSync())->backfillNames();
+// Passes de rattrapage : numéros Odoo, identifiants Payplug, étiquettes clients.
+$maintenance = OdooOrderSync::runMaintenance();
 
-    if (array_sum($filled)) {
-        echo sprintf(
-            "Numéros Odoo récupérés : %d commande(s), %d bon(s) de livraison, %d facture(s).\n",
-            $filled['order'],
-            $filled['picking'],
-            $filled['invoice']
-        );
-    }
-} catch (Throwable $e) {
-    echo 'Récupération des numéros impossible : ' . $e->getMessage() . "\n";
-}
-
-// Identifiants de paiement Payplug : reportés sur les factures qui ne les ont pas encore,
-// pour le rapprochement des virements. Sans incidence si le module Odoo ne déclare pas le champ.
-try {
-    $payplug = (new OdooOrderSync())->backfillPayplugRefs();
-
-    if ($payplug['filled']) {
-        echo sprintf("Identifiants Payplug reportés sur %d facture(s).\n", $payplug['filled']);
-    }
-} catch (Throwable $e) {
-    echo 'Report des identifiants Payplug impossible : ' . $e->getMessage() . "\n";
-}
-
-// Étiquette client : posée sur les fiches Odoo déjà synchronisées qui ne l'ont pas encore.
-// Sans effet si aucune étiquette n'est choisie dans la configuration du module.
-try {
-    $tags = (new OdooOrderSync())->backfillPartnerTags();
-
-    if ($tags['filled']) {
-        echo sprintf("Étiquette posée sur %d fiche(s) client Odoo.\n", $tags['filled']);
-    }
-} catch (Throwable $e) {
-    echo 'Pose des étiquettes clients impossible : ' . $e->getMessage() . "\n";
+foreach (array_merge($maintenance['lines'], $maintenance['failed']) as $line) {
+    echo $line . "\n";
 }
 
 // Alerte récapitulative : un seul email par période, quel que soit le nombre d'erreurs.

@@ -1406,8 +1406,10 @@ class OdooOrderSync
             }
 
             // Repli par le nom : l'étiquette a pu être recréée dans Odoo avec un autre identifiant.
+            // Comparaison insensible à la casse : ce nom est saisi à la main quand Odoo était
+            // injoignable au moment du paramétrage, « Ecommerce » ne doit pas manquer « ecommerce ».
             if ($this->partnerTagId === null && $name !== '') {
-                $rows = $this->client->searchRead('res.partner.category', [['name', '=', $name]], ['id'], 1);
+                $rows = $this->client->searchRead('res.partner.category', [['name', '=ilike', $name]], ['id'], 1);
                 $this->partnerTagId = !empty($rows) ? (int) $rows[0]['id'] : null;
             }
         } catch (Throwable $e) {
@@ -1893,6 +1895,66 @@ class OdooOrderSync
      *
      * @return array{success:int,failed:int,total:int}
      */
+    /**
+     * Passes de rattrapage, au-delà de la synchronisation des commandes elle-même.
+     *
+     * Rassemblées ici parce que le cron et le bouton « Synchroniser maintenant » doivent
+     * faire la même chose : une commande déjà synchronisée ressort immédiatement de
+     * runCatchUp(), si bien que le bouton seul ne pouvait rien rattraper — ni un numéro
+     * Odoo manquant, ni un identifiant Payplug, ni une étiquette client.
+     *
+     * Chaque passe est isolée : l'échec de l'une ne prive pas les autres de leur tour.
+     *
+     * @return array{lines:string[],failed:string[]} comptes rendus prêts à afficher
+     */
+    public static function runMaintenance()
+    {
+        $lines = [];
+        $failed = [];
+
+        // Une facture n'a de numéro qu'une fois validée dans Odoo : si elle l'est entre-temps,
+        // le journal se complète tout seul au passage suivant.
+        try {
+            $filled = (new self())->backfillNames();
+
+            if (array_sum($filled)) {
+                $lines[] = sprintf(
+                    'Numéros Odoo récupérés : %d commande(s), %d bon(s) de livraison, %d facture(s).',
+                    $filled['order'],
+                    $filled['picking'],
+                    $filled['invoice']
+                );
+            }
+        } catch (Throwable $e) {
+            $failed[] = 'Récupération des numéros impossible : ' . $e->getMessage();
+        }
+
+        // Identifiants de paiement Payplug, pour le rapprochement des virements. Sans
+        // incidence si le module Odoo ne déclare pas le champ.
+        try {
+            $payplug = (new self())->backfillPayplugRefs();
+
+            if ($payplug['filled']) {
+                $lines[] = sprintf('Identifiants Payplug reportés sur %d facture(s).', $payplug['filled']);
+            }
+        } catch (Throwable $e) {
+            $failed[] = 'Report des identifiants Payplug impossible : ' . $e->getMessage();
+        }
+
+        // Étiquette client. Sans effet tant qu'aucune n'est choisie dans la configuration.
+        try {
+            $tags = (new self())->backfillPartnerTags();
+
+            if ($tags['filled']) {
+                $lines[] = sprintf('Étiquette posée sur %d fiche(s) client Odoo.', $tags['filled']);
+            }
+        } catch (Throwable $e) {
+            $failed[] = 'Pose des étiquettes clients impossible : ' . $e->getMessage();
+        }
+
+        return ['lines' => $lines, 'failed' => $failed];
+    }
+
     /**
      * Mémorise l'heure du dernier passage du cron de rattrapage.
      *
